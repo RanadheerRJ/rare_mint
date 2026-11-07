@@ -1,0 +1,895 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ArrowLeft,
+  Award,
+  BookOpen,
+  Calculator,
+  CheckCircle2,
+  ChevronRight,
+  Gavel,
+  MessageCircle,
+  Plus,
+  UserPlus,
+  Users,
+} from 'lucide-react';
+import {
+  ChitGroupDetail,
+  MemberSlot,
+  PaymentMethod,
+  PaymentRecord,
+  User,
+} from '../types';
+import { api } from '../api/client';
+import { getMemberPayableForMonth } from '../utils/chitFinance';
+import {
+  buildDueReminderWhatsAppText,
+  buildWhatsAppLink,
+  formatIndianDate,
+  formatPassbookAmount,
+} from '../utils/format';
+import { PassbookTable } from './PassbookTable';
+import { LiftCalculator } from './LiftCalculator';
+
+interface ChitDetailViewProps {
+  groupId: number;
+  currentUser: User;
+  onBack: () => void;
+  onOpenReceipt: (receipt: PaymentRecord) => void;
+  onDataChanged: () => void;
+}
+
+type DetailTab = 'passbook' | 'collections' | 'lifts' | 'calculator';
+
+export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
+  groupId,
+  currentUser,
+  onBack,
+  onOpenReceipt,
+  onDataChanged,
+}) => {
+  const isOrganizer = currentUser.role === 'organizer';
+  const [group, setGroup] = useState<ChitGroupDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<DetailTab>('passbook');
+  const [selectedSlotId, setSelectedSlotId] = useState<number | null>(null);
+  const [collectionMonth, setCollectionMonth] = useState<number>(1);
+
+  // Payment modal state
+  const [payModal, setPayModal] = useState<{
+    slot: MemberSlot;
+    monthNumber: number;
+    amount: number;
+  } | null>(null);
+  const [payMethod, setPayMethod] = useState<PaymentMethod>('UPI');
+  const [payRef, setPayRef] = useState('');
+  const [payBusy, setPayBusy] = useState(false);
+
+  // Enroll modal state
+  const [showEnrollModal, setShowEnrollModal] = useState(false);
+  const [enrollTicket, setEnrollTicket] = useState<number>(1);
+  const [existingMembers, setExistingMembers] = useState<User[]>([]);
+  const [enrollMode, setEnrollMode] = useState<'existing' | 'new'>('new');
+  const [selectedExistingUserId, setSelectedExistingUserId] = useState<number>(0);
+  const [newMemberName, setNewMemberName] = useState('');
+  const [newMemberPhone, setNewMemberPhone] = useState('');
+  const [enrollError, setEnrollError] = useState<string | null>(null);
+
+  // Lift / Auction form state
+  const [liftMonth, setLiftMonth] = useState<number>(1);
+  const [liftWinnerSlotId, setLiftWinnerSlotId] = useState<number>(0);
+  const [bidDiscount, setBidDiscount] = useState<number>(50000);
+  const [payoutRef, setPayoutRef] = useState<string>('');
+  const [liftMessage, setLiftMessage] = useState<string | null>(null);
+  const [liftError, setLiftError] = useState<string | null>(null);
+
+  const loadDetail = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { group: detail } = await api.getChitDetail(groupId, currentUser.id);
+      setGroup(detail);
+      setCollectionMonth(detail.currentMonth);
+      setLiftMonth(detail.currentMonth);
+
+      if (!isOrganizer) {
+        const myFirstSlot = detail.slots.find((s) => s.userId === currentUser.id);
+        if (myFirstSlot) setSelectedSlotId(myFirstSlot.id);
+      } else {
+        setSelectedSlotId((prev) => {
+          if (prev && detail.slots.some((s) => s.id === prev)) return prev;
+          return detail.slots[0]?.id ?? null;
+        });
+      }
+
+      const defaultComm = Math.round((detail.faceValue * detail.foremanCommissionPct) / 100);
+      setBidDiscount(Math.max(defaultComm, Math.round(detail.faceValue * 0.25)));
+    } finally {
+      setLoading(false);
+    }
+  }, [groupId, currentUser.id, isOrganizer]);
+
+  useEffect(() => {
+    loadDetail();
+  }, [loadDetail]);
+
+  const selectedSlot = useMemo(
+    () => group?.slots.find((s) => s.id === selectedSlotId) || null,
+    [group, selectedSlotId]
+  );
+
+  const openEnrollDrawer = async (ticketNum: number) => {
+    setEnrollTicket(ticketNum);
+    setEnrollError(null);
+    setShowEnrollModal(true);
+    try {
+      const { members } = await api.getMembers();
+      setExistingMembers(members);
+      if (members.length > 0) setSelectedExistingUserId(members[0].id);
+    } catch {
+      // Ignore if offline
+    }
+  };
+
+  const handleConfirmPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!group || !payModal) return;
+    setPayBusy(true);
+    try {
+      const { payment } = await api.recordPayment(group.id, {
+        memberSlotId: payModal.slot.id,
+        monthNumber: payModal.monthNumber,
+        amountPaid: payModal.amount,
+        paymentMethod: payMethod,
+        referenceNote: payRef || (payMethod === 'UPI' ? 'Instant UPI Verified' : 'Desk Collection'),
+        signedByName: group.organizerName,
+      });
+      setPayModal(null);
+      setPayRef('');
+      await loadDetail();
+      onDataChanged();
+      onOpenReceipt(payment);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not record payment');
+    } finally {
+      setPayBusy(false);
+    }
+  };
+
+  const handleEnrollSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!group) return;
+    setEnrollError(null);
+    try {
+      await api.enrollSlot(group.id, {
+        ticketNumber: enrollTicket,
+        userId: enrollMode === 'existing' ? selectedExistingUserId : undefined,
+        newMemberName: enrollMode === 'new' ? newMemberName : undefined,
+        newMemberPhone: enrollMode === 'new' ? newMemberPhone : undefined,
+      });
+      setShowEnrollModal(false);
+      setNewMemberName('');
+      setNewMemberPhone('');
+      await loadDetail();
+      onDataChanged();
+    } catch (err) {
+      setEnrollError(err instanceof Error ? err.message : 'Enrollment failed');
+    }
+  };
+
+  const handleRecordLift = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!group || !liftWinnerSlotId) return;
+    setLiftError(null);
+    setLiftMessage(null);
+    try {
+      await api.recordLift(group.id, {
+        monthNumber: liftMonth,
+        winnerMemberSlotId: liftWinnerSlotId,
+        bidDiscount: group.chitType === 'AUCTION' ? bidDiscount : undefined,
+        payoutReference: payoutRef || `NEFT-${group.code}-M${liftMonth}`,
+      });
+      setLiftMessage(`Month ${liftMonth} winner & passbook rates updated.`);
+      setPayoutRef('');
+      await loadDetail();
+      onDataChanged();
+    } catch (err) {
+      setLiftError(err instanceof Error ? err.message : 'Could not record winner');
+    }
+  };
+
+  const handleAdvanceMonth = async (nextMonth: number) => {
+    if (!group) return;
+    await api.setCurrentMonth(group.id, nextMonth);
+    await loadDetail();
+    onDataChanged();
+  };
+
+  if (loading || !group) {
+    return (
+      <div className="rounded-2xl border border-[#0B3B2E]/10 bg-white p-10 text-center text-sm text-[#55655E]">
+        Loading digital passbook & ledger…
+      </div>
+    );
+  }
+
+  // Compute collection stats for `collectionMonth`
+  const activeSchedRow =
+    group.schedule.find((r) => r.monthNumber === collectionMonth) || group.schedule[0];
+  const paymentsInMonth = new Map<number, PaymentRecord>();
+  for (const p of group.payments) {
+    if (p.monthNumber === collectionMonth) {
+      paymentsInMonth.set(p.memberSlotId, p);
+    }
+  }
+
+  const takenTickets = new Set(group.slots.map((s) => s.ticketNumber));
+  const openTicketNumbers: number[] = [];
+  for (let t = 1; t <= group.totalSlots; t++) {
+    if (!takenTickets.has(t)) openTicketNumbers.push(t);
+  }
+
+  const eligibleNonPrizedSlots = group.slots.filter(
+    (s) => s.prizedMonth === null || s.prizedMonth === liftMonth
+  );
+
+  // Live Auction preview math
+  const auctionPreview = (() => {
+    const comm = Math.round((group.faceValue * group.foremanCommissionPct) / 100);
+    const disc = Math.max(comm, bidDiscount);
+    const divPool = Math.max(0, disc - comm);
+    const divPerMember = Math.round(divPool / group.totalSlots);
+    const netInstallment = Math.max(0, group.baseInstallment - divPerMember);
+    const winnerPayout = group.faceValue - disc;
+    return { comm, disc, divPool, divPerMember, netInstallment, winnerPayout };
+  })();
+
+  return (
+    <div className="space-y-5">
+      {/* Top Breadcrumb + Summary Bar */}
+      <div className="no-print flex flex-wrap items-center justify-between gap-3">
+        <button
+          onClick={onBack}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-[#0B3B2E]/15 bg-white px-3.5 py-2 text-xs font-semibold text-[#14201C] transition hover:bg-[#EFECE4]"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          All Chit Groups
+        </button>
+
+        {isOrganizer && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-[#55655E]">Active Cycle:</span>
+            <select
+              value={group.currentMonth}
+              onChange={(e) => handleAdvanceMonth(Number(e.target.value))}
+              className="rounded-xl border border-[#0B3B2E]/20 bg-white px-3 py-1.5 text-xs font-bold text-[#0B3B2E]"
+            >
+              {group.schedule.map((r) => (
+                <option key={r.monthNumber} value={r.monthNumber}>
+                  Month {r.monthNumber} ({formatIndianDate(r.chitDate)})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
+      {/* Sub-navigation Tabs */}
+      <div className="no-print flex flex-wrap gap-2 rounded-2xl border border-[#0B3B2E]/12 bg-white p-1.5">
+        {[
+          { id: 'passbook', label: 'Digital Passbook', icon: BookOpen },
+          {
+            id: 'collections',
+            label: isOrganizer
+              ? `Members & Collections (${group.enrolledSlots}/${group.totalSlots})`
+              : 'Ticket & Payments',
+            icon: Users,
+          },
+          {
+            id: 'lifts',
+            label: group.chitType === 'AUCTION' ? 'Monthly Auctions' : 'Monthly Winners',
+            icon: group.chitType === 'AUCTION' ? Gavel : Award,
+          },
+          { id: 'calculator', label: 'Best Month to Lift', icon: Calculator },
+        ].map((tab) => {
+          const Icon = tab.icon;
+          const active = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as DetailTab)}
+              className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-bold transition sm:flex-none ${
+                active
+                  ? 'bg-[#0B3B2E] text-white shadow-xs'
+                  : 'text-[#55655E] hover:bg-[#FAF8F4] hover:text-[#14201C]'
+              }`}
+            >
+              <Icon className="h-4 w-4" />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* TAB 1: DIGITAL PASSBOOK */}
+      {activeTab === 'passbook' && (
+        <PassbookTable
+          group={group}
+          selectedSlot={selectedSlot}
+          onSelectSlot={(id) => setSelectedSlotId(id)}
+          isOrganizer={isOrganizer}
+          onOpenReceipt={onOpenReceipt}
+          onQuickRecordPayment={(slot, monthNum, expected) => {
+            if (!isOrganizer && slot.userId !== currentUser.id) return;
+            setPayModal({ slot, monthNumber: monthNum, amount: expected });
+          }}
+        />
+      )}
+
+      {/* TAB 2: MEMBERS & MONTHLY COLLECTIONS */}
+      {activeTab === 'collections' && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#0B3B2E]/15 bg-white p-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="text-xs font-bold tracking-wider text-[#55655E] uppercase">
+                Inspect Collection Month:
+              </label>
+              <select
+                value={collectionMonth}
+                onChange={(e) => setCollectionMonth(Number(e.target.value))}
+                className="rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3.5 py-2 text-sm font-bold text-[#0B3B2E]"
+              >
+                {group.schedule.map((r) => (
+                  <option key={r.monthNumber} value={r.monthNumber}>
+                    Month {r.monthNumber} — Due {formatIndianDate(r.chitDate)}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {isOrganizer && openTicketNumbers.length > 0 && (
+              <button
+                onClick={() => openEnrollDrawer(openTicketNumbers[0])}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-[#0B3B2E] px-4 py-2 text-xs font-bold text-white hover:bg-[#135341]"
+              >
+                <UserPlus className="h-4 w-4" />
+                Enroll Member ({openTicketNumbers.length} Open Slots)
+              </button>
+            )}
+          </div>
+
+          <div className="overflow-hidden rounded-2xl border border-[#0B3B2E]/15 bg-white">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[680px] text-left text-sm">
+                <thead>
+                  <tr className="border-b border-[#0B3B2E]/15 bg-[#FAF8F4] text-[11px] font-bold tracking-wider text-[#55655E] uppercase">
+                    <th className="px-4 py-3">Ticket #</th>
+                    <th className="px-4 py-3">Subscriber</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3 text-right">Month {collectionMonth} Payable</th>
+                    <th className="px-4 py-3 text-center">Collection & Signature</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#0B3B2E]/10">
+                  {group.slots
+                    .filter((s) => isOrganizer || s.userId === currentUser.id)
+                    .map((slot) => {
+                      const expected = getMemberPayableForMonth(
+                        group.chitType,
+                        activeSchedRow,
+                        slot.prizedMonth
+                      );
+                      const paidRec = paymentsInMonth.get(slot.id);
+                      const isPrizedAlready =
+                        slot.prizedMonth !== null && slot.prizedMonth < collectionMonth;
+
+                      const reminderUrl = buildWhatsAppLink(
+                        slot.memberPhone,
+                        buildDueReminderWhatsAppText({
+                          chitGroupId: group.id,
+                          chitCode: group.code,
+                          chitName: group.name,
+                          chitType: group.chitType,
+                          monthNumber: collectionMonth,
+                          dueDate: activeSchedRow.chitDate,
+                          isOverdue: false,
+                          daysUntilDue: 0,
+                          memberSlotId: slot.id,
+                          ticketNumber: slot.ticketNumber,
+                          memberName: slot.memberName,
+                          memberPhone: slot.memberPhone,
+                          isPrizedSubscriber: isPrizedAlready,
+                          amountDue: expected,
+                          organizerName: group.organizerName,
+                        })
+                      );
+
+                      return (
+                        <tr key={slot.id} className="hover:bg-[#FAF8F4]/75">
+                          <td className="px-4 py-3 font-bold text-[#0B3B2E] tabular-nums">
+                            #{slot.ticketNumber}
+                          </td>
+                          <td className="px-4 py-3">
+                            <button
+                              onClick={() => {
+                                setSelectedSlotId(slot.id);
+                                setActiveTab('passbook');
+                              }}
+                              className="group text-left"
+                            >
+                              <p className="font-semibold text-[#14201C] group-hover:text-[#0B3B2E] group-hover:underline">
+                                {slot.memberName}
+                              </p>
+                              <p className="text-xs text-[#55655E] tabular-nums">
+                                +91 {slot.memberPhone}
+                              </p>
+                            </button>
+                          </td>
+                          <td className="px-4 py-3">
+                            {slot.prizedMonth ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-900">
+                                Prized M{slot.prizedMonth}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
+                                Non-Prized
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right font-bold text-[#14201C] tabular-nums">
+                            {formatPassbookAmount(expected)}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            {paidRec ? (
+                              <button
+                                onClick={() => onOpenReceipt(paidRec)}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-700/25 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
+                              >
+                                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-700" />
+                                {paidRec.receiptNumber}
+                                <ChevronRight className="h-3.5 w-3.5" />
+                              </button>
+                            ) : (
+                              <div className="inline-flex items-center gap-2">
+                                <button
+                                  onClick={() =>
+                                    setPayModal({
+                                      slot,
+                                      monthNumber: collectionMonth,
+                                      amount: expected,
+                                    })
+                                  }
+                                  className="rounded-lg bg-[#0B3B2E] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#135341]"
+                                >
+                                  {isOrganizer ? 'Collect & Sign' : 'Pay Now'}
+                                </button>
+                                {isOrganizer && (
+                                  <a
+                                    href={reminderUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title="Send WhatsApp Reminder"
+                                    className="rounded-lg border border-[#0B3B2E]/20 p-1.5 text-[#0B3B2E] hover:bg-[#FAF8F4]"
+                                  >
+                                    <MessageCircle className="h-4 w-4" />
+                                  </a>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: MONTHLY WINNERS / AUCTIONS */}
+      {activeTab === 'lifts' && (
+        <div className="grid gap-5 lg:grid-cols-3">
+          {isOrganizer && (
+            <form
+              onSubmit={handleRecordLift}
+              className="space-y-4 rounded-2xl border border-[#0B3B2E]/15 bg-white p-5 lg:col-span-1"
+            >
+              <div>
+                <p className="text-[11px] font-bold tracking-wider text-[#B8860B] uppercase">
+                  Foreman Allotment Desk
+                </p>
+                <h3 className="text-base font-bold text-[#14201C]">
+                  {group.chitType === 'AUCTION'
+                    ? 'Record Monthly Auction & Dividend'
+                    : 'Assign Monthly Chit Winner'}
+                </h3>
+              </div>
+
+              {liftMessage && (
+                <div className="rounded-xl bg-emerald-50 p-3 text-xs font-semibold text-emerald-900">
+                  {liftMessage}
+                </div>
+              )}
+              {liftError && (
+                <div className="rounded-xl bg-red-50 p-3 text-xs font-semibold text-red-800">
+                  {liftError}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-[#55655E]">Chit Month</label>
+                <select
+                  value={liftMonth}
+                  onChange={(e) => setLiftMonth(Number(e.target.value))}
+                  className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3 py-2 text-sm font-semibold"
+                >
+                  {group.schedule.map((r) => (
+                    <option key={r.monthNumber} value={r.monthNumber}>
+                      Month {r.monthNumber} ({formatIndianDate(r.chitDate)}){' '}
+                      {r.winnerName ? `— Won by #${r.winnerTicketNumber}` : '— Open'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#55655E]">
+                  Winning Non-Prized Ticket
+                </label>
+                <select
+                  required
+                  value={liftWinnerSlotId}
+                  onChange={(e) => setLiftWinnerSlotId(Number(e.target.value))}
+                  className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3 py-2 text-sm font-semibold"
+                >
+                  <option value={0}>Select subscriber ticket…</option>
+                  {eligibleNonPrizedSlots.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      Ticket #{s.ticketNumber} — {s.memberName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {group.chitType === 'AUCTION' && (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold text-[#55655E]">
+                      Winning Bid Discount (₹)
+                    </label>
+                    <input
+                      type="number"
+                      min={auctionPreview.comm}
+                      max={Math.round((group.faceValue * group.maxBidPct) / 100)}
+                      step={500}
+                      value={bidDiscount}
+                      onChange={(e) => setBidDiscount(Number(e.target.value))}
+                      className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3 py-2 text-sm font-bold tabular-nums"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5 rounded-xl bg-[#FAF8F4] p-3.5 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-[#55655E]">
+                        Foreman Commission ({group.foremanCommissionPct}%)
+                      </span>
+                      <span className="font-semibold tabular-nums">
+                        {formatPassbookAmount(auctionPreview.comm)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-[#55655E]">Dividend per Subscriber</span>
+                      <span className="font-bold text-emerald-700 tabular-nums">
+                        +{formatPassbookAmount(auctionPreview.divPerMember)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-t border-[#0B3B2E]/10 pt-1.5">
+                      <span className="font-semibold text-[#14201C]">Net Payable / Ticket</span>
+                      <span className="font-bold text-[#0B3B2E] tabular-nums">
+                        {formatPassbookAmount(auctionPreview.netInstallment)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="font-semibold text-[#14201C]">Winner Payout</span>
+                      <span className="font-bold text-[#9A6B00] tabular-nums">
+                        {formatPassbookAmount(auctionPreview.winnerPayout)}
+                      </span>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-[#55655E]">
+                  Payout NEFT / Reference Note
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. NEFT/UTR902811"
+                  value={payoutRef}
+                  onChange={(e) => setPayoutRef(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3 py-2 text-sm"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={!liftWinnerSlotId}
+                className="w-full rounded-xl bg-[#0B3B2E] py-2.5 text-sm font-bold text-white transition hover:bg-[#135341] disabled:opacity-45"
+              >
+                Confirm Month {liftMonth} Winner
+              </button>
+            </form>
+          )}
+
+          <div
+            className={`overflow-hidden rounded-2xl border border-[#0B3B2E]/15 bg-white ${
+              isOrganizer ? 'lg:col-span-2' : 'lg:col-span-3'
+            }`}
+          >
+            <div className="border-b border-[#0B3B2E]/10 px-5 py-3.5">
+              <h3 className="text-sm font-bold text-[#14201C]">
+                Monthly Winner & Disbursement Register
+              </h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] text-left text-sm">
+                <thead>
+                  <tr className="border-b border-[#0B3B2E]/15 bg-[#FAF8F4] text-[11px] font-bold text-[#55655E] uppercase">
+                    <th className="px-4 py-2.5">Month</th>
+                    <th className="px-4 py-2.5">Date</th>
+                    <th className="px-4 py-2.5">Winner</th>
+                    <th className="px-4 py-2.5 text-right">Payout Value</th>
+                    {group.chitType === 'AUCTION' && (
+                      <th className="px-4 py-2.5 text-right">Dividend / Member</th>
+                    )}
+                    <th className="px-4 py-2.5">Reference</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#0B3B2E]/10">
+                  {group.schedule.map((r) => (
+                    <tr key={r.monthNumber}>
+                      <td className="px-4 py-2.5 font-bold tabular-nums">M{r.monthNumber}</td>
+                      <td className="px-4 py-2.5 text-xs text-[#55655E] tabular-nums">
+                        {formatIndianDate(r.chitDate)}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {r.winnerName ? (
+                          <span className="font-semibold text-[#0B3B2E]">
+                            #{r.winnerTicketNumber} · {r.winnerName}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-[#55655E]">Pending Draw</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-bold tabular-nums">
+                        {formatPassbookAmount(r.chitValue)}
+                      </td>
+                      {group.chitType === 'AUCTION' && (
+                        <td className="px-4 py-2.5 text-right text-xs font-semibold text-emerald-800 tabular-nums">
+                          {r.dividendPerMember !== null
+                            ? `+${formatPassbookAmount(r.dividendPerMember, true, false)}`
+                            : '—'}
+                        </td>
+                      )}
+                      <td className="px-4 py-2.5 font-mono text-xs text-[#55655E]">
+                        {r.payoutReference || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 4: LIFT ROI CALCULATOR */}
+      {activeTab === 'calculator' && (
+        <LiftCalculator userId={currentUser.id} lockedGroup={group} />
+      )}
+
+      {/* RECORD PAYMENT MODAL */}
+      {payModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-xs">
+          <form
+            onSubmit={handleConfirmPayment}
+            className="w-full max-w-md space-y-4 rounded-2xl border border-[#0B3B2E]/20 bg-white p-6 shadow-2xl"
+          >
+            <div>
+              <p className="text-[11px] font-bold tracking-wider text-[#B8860B] uppercase">
+                Digital Passbook Collection
+              </p>
+              <h3 className="text-lg font-bold text-[#14201C]">
+                {isOrganizer ? 'Record Payment & Sign Passbook' : 'Pay Monthly Installment'}
+              </h3>
+              <p className="text-xs text-[#55655E]">
+                {payModal.slot.memberName} · Ticket #{payModal.slot.ticketNumber} · Month{' '}
+                {payModal.monthNumber}
+              </p>
+            </div>
+
+            <div className="rounded-xl bg-[#FAF8F4] p-4 text-center">
+              <span className="text-xs text-[#55655E]">Scheduled Installment Payable</span>
+              <p className="mt-0.5 text-2xl font-bold text-[#0B3B2E] tabular-nums">
+                {formatPassbookAmount(payModal.amount)}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-[#55655E]">Payment Mode</label>
+              <div className="mt-1.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {(['UPI', 'CASH', 'BANK_TRANSFER', 'CHEQUE'] as PaymentMethod[]).map((m) => (
+                  <button
+                    type="button"
+                    key={m}
+                    onClick={() => setPayMethod(m)}
+                    className={`rounded-lg border px-2.5 py-2 text-xs font-bold transition ${
+                      payMethod === m
+                        ? 'border-[#0B3B2E] bg-[#0B3B2E] text-white'
+                        : 'border-[#0B3B2E]/20 bg-white text-[#14201C]'
+                    }`}
+                  >
+                    {m.replace('_', ' ')}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-[#55655E]">
+                UTR / Reference Note (Optional)
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. GPay UTR 63192011"
+                value={payRef}
+                onChange={(e) => setPayRef(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3.5 py-2 text-sm"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setPayModal(null)}
+                className="rounded-xl border border-[#0B3B2E]/20 px-4 py-2 text-sm font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={payBusy}
+                className="rounded-xl bg-[#0B3B2E] px-5 py-2 text-sm font-bold text-white hover:bg-[#135341]"
+              >
+                {payBusy ? 'Signing…' : 'Confirm & Issue Receipt'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ENROLL MEMBER MODAL */}
+      {showEnrollModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-xs">
+          <form
+            onSubmit={handleEnrollSubmit}
+            className="w-full max-w-md space-y-4 rounded-2xl border border-[#0B3B2E]/20 bg-white p-6 shadow-2xl"
+          >
+            <h3 className="text-lg font-bold text-[#14201C]">
+              Enroll Subscriber to Open Ticket
+            </h3>
+
+            {enrollError && (
+              <div className="rounded-xl bg-red-50 p-3 text-xs font-semibold text-red-800">
+                {enrollError}
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-semibold text-[#55655E]">Ticket Number</label>
+              <select
+                value={enrollTicket}
+                onChange={(e) => setEnrollTicket(Number(e.target.value))}
+                className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3 py-2 text-sm font-bold"
+              >
+                {openTicketNumbers.map((n) => (
+                  <option key={n} value={n}>
+                    Ticket #{n}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setEnrollMode('new')}
+                className={`flex-1 rounded-lg py-2 text-xs font-bold ${
+                  enrollMode === 'new'
+                    ? 'bg-[#0B3B2E] text-white'
+                    : 'bg-[#FAF8F4] text-[#55655E]'
+                }`}
+              >
+                <Plus className="mr-1 inline h-3.5 w-3.5" />
+                New Subscriber
+              </button>
+              <button
+                type="button"
+                onClick={() => setEnrollMode('existing')}
+                className={`flex-1 rounded-lg py-2 text-xs font-bold ${
+                  enrollMode === 'existing'
+                    ? 'bg-[#0B3B2E] text-white'
+                    : 'bg-[#FAF8F4] text-[#55655E]'
+                }`}
+              >
+                Existing Directory
+              </button>
+            </div>
+
+            {enrollMode === 'new' ? (
+              <>
+                <div>
+                  <label className="block text-xs font-semibold text-[#55655E]">Full Name</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Karthikeya Reddy"
+                    value={newMemberName}
+                    onChange={(e) => setNewMemberName(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3.5 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-[#55655E]">
+                    10-Digit Mobile Number
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    placeholder="98480XXXXX"
+                    value={newMemberPhone}
+                    onChange={(e) => setNewMemberPhone(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3.5 py-2 text-sm tabular-nums"
+                  />
+                </div>
+              </>
+            ) : (
+              <div>
+                <label className="block text-xs font-semibold text-[#55655E]">
+                  Select Member
+                </label>
+                <select
+                  value={selectedExistingUserId}
+                  onChange={(e) => setSelectedExistingUserId(Number(e.target.value))}
+                  className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3 py-2 text-sm font-semibold"
+                >
+                  {existingMembers.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} (+91 {m.phone})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowEnrollModal(false)}
+                className="rounded-xl border border-[#0B3B2E]/20 px-4 py-2 text-sm font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="rounded-xl bg-[#0B3B2E] px-5 py-2 text-sm font-bold text-white hover:bg-[#135341]"
+              >
+                Assign Ticket #{enrollTicket}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+};
