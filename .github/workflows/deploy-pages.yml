@@ -19,6 +19,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      pages_configured: ${{ steps.pages_config.outcome == 'success' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -38,8 +40,12 @@ jobs:
           npm run build
           cp dist/index.html dist/404.html
 
-      - name: Setup GitHub Pages
+      - name: Configure GitHub Pages
+        id: pages_config
+        continue-on-error: true
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
@@ -47,6 +53,7 @@ jobs:
           path: './dist'
 
   deploy:
+    if: needs.build.outputs.pages_configured == 'true'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
