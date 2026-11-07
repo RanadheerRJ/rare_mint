@@ -9,6 +9,12 @@ import {
   generateProportionalFixedSchedule,
 } from '../utils/chitFinance';
 import { formatPassbookAmount } from '../utils/format';
+import { NumberField } from './NumberField';
+
+const MIN_MONTHS = 2;
+const MAX_MONTHS = 60;
+const MIN_FACE_VALUE = 1000;
+const isValidMonths = (m: number) => Number.isInteger(m) && m >= MIN_MONTHS && m <= MAX_MONTHS;
 
 interface CreateChitModalProps {
   organizerId: number;
@@ -58,7 +64,7 @@ export const CreateChitModal: React.FC<CreateChitModalProps> = ({
     nextFace: number = faceValue,
     nextDuration: number = durationMonths
   ) => {
-    const clampedMonths = Math.min(60, Math.max(4, nextDuration));
+    const clampedMonths = Math.min(MAX_MONTHS, Math.max(MIN_MONTHS, Math.round(nextDuration)));
     if (nextType === 'FIXED_TABLE') {
       setSchedule(generateProportionalFixedSchedule(nextFace, clampedMonths));
     } else {
@@ -79,6 +85,22 @@ export const CreateChitModal: React.FC<CreateChitModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (!isValidMonths(durationMonths)) {
+      setError(`Duration must be between ${MIN_MONTHS} and ${MAX_MONTHS} months.`);
+      return;
+    }
+    if (faceValue < MIN_FACE_VALUE) {
+      setError(`Chit face value must be at least ${formatPassbookAmount(MIN_FACE_VALUE)}.`);
+      return;
+    }
+    if (dueDay < 1 || dueDay > 28) {
+      setError('Monthly due day must be between 1 and 28.');
+      return;
+    }
+    if (schedule.length !== durationMonths) {
+      setError('The schedule does not match the duration. Tap Rebuild to recalculate it.');
+      return;
+    }
     setSubmitting(true);
     try {
       const baseInstallment =
@@ -207,15 +229,15 @@ export const CreateChitModal: React.FC<CreateChitModalProps> = ({
               <label className="block text-xs font-semibold text-[#55655E]">
                 Chit Face Value (₹)
               </label>
-              <input
-                type="number"
-                min={10000}
-                step={5000}
+              <NumberField
                 required
+                min={MIN_FACE_VALUE}
                 value={faceValue}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
+                onValueChange={(v) => {
                   setFaceValue(v);
+                  if (v >= MIN_FACE_VALUE && isValidMonths(durationMonths)) {
+                    regenerateSchedule(chitType, v, durationMonths);
+                  }
                 }}
                 className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3.5 py-2 text-sm font-semibold tabular-nums focus:border-[#0B3B2E] focus:outline-none"
               />
@@ -226,16 +248,17 @@ export const CreateChitModal: React.FC<CreateChitModalProps> = ({
                 Duration / Total Tickets
               </label>
               <div className="mt-1 flex gap-2">
-                <input
-                  type="number"
-                  min={4}
-                  max={60}
+                <NumberField
                   required
+                  min={MIN_MONTHS}
+                  max={MAX_MONTHS}
                   value={durationMonths}
-                  onChange={(e) => {
-                    const m = Math.min(60, Math.max(4, Number(e.target.value)));
+                  onValueChange={(m) => {
                     setDurationMonths(m);
-                    regenerateSchedule(chitType, faceValue, m);
+                    if (isValidMonths(m)) regenerateSchedule(chitType, faceValue, m);
+                  }}
+                  onCommit={(m) => {
+                    if (schedule.length !== m) regenerateSchedule(chitType, faceValue, m);
                   }}
                   className="w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3.5 py-2 text-sm font-semibold tabular-nums focus:border-[#0B3B2E] focus:outline-none"
                 />
@@ -260,7 +283,7 @@ export const CreateChitModal: React.FC<CreateChitModalProps> = ({
                 onChange={(e) => {
                   setStartDate(e.target.value);
                   const d = Number(e.target.value.split('-')[2]);
-                  if (d) setDueDay(d);
+                  if (d) setDueDay(Math.min(28, d));
                 }}
                 className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3.5 py-2 text-sm font-semibold focus:border-[#0B3B2E] focus:outline-none"
               />
@@ -270,12 +293,11 @@ export const CreateChitModal: React.FC<CreateChitModalProps> = ({
               <label className="block text-xs font-semibold text-[#55655E]">
                 Monthly Due Day (1–28)
               </label>
-              <input
-                type="number"
+              <NumberField
                 min={1}
                 max={28}
                 value={dueDay}
-                onChange={(e) => setDueDay(Number(e.target.value))}
+                onValueChange={setDueDay}
                 className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3.5 py-2 text-sm font-semibold tabular-nums focus:border-[#0B3B2E] focus:outline-none"
               />
             </div>
@@ -285,13 +307,28 @@ export const CreateChitModal: React.FC<CreateChitModalProps> = ({
                 <label className="block text-xs font-semibold text-[#55655E]">
                   Foreman Commission (%)
                 </label>
-                <input
-                  type="number"
-                  min={1}
-                  max={10}
-                  step={0.5}
+                <NumberField
+                  allowDecimal
+                  min={0}
+                  max={20}
                   value={foremanCommissionPct}
-                  onChange={(e) => setForemanCommissionPct(Number(e.target.value))}
+                  onValueChange={setForemanCommissionPct}
+                  className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3.5 py-2 text-sm font-semibold tabular-nums focus:border-[#0B3B2E] focus:outline-none"
+                />
+              </div>
+            )}
+
+            {chitType === 'AUCTION' && (
+              <div>
+                <label className="block text-xs font-semibold text-[#55655E]">
+                  Maximum Bid Discount (%)
+                </label>
+                <NumberField
+                  allowDecimal
+                  min={0}
+                  max={100}
+                  value={maxBidPct}
+                  onValueChange={setMaxBidPct}
                   className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3.5 py-2 text-sm font-semibold tabular-nums focus:border-[#0B3B2E] focus:outline-none"
                 />
               </div>
@@ -330,32 +367,29 @@ export const CreateChitModal: React.FC<CreateChitModalProps> = ({
                       <tr key={row.monthNumber}>
                         <td className="px-3 py-1.5 font-bold tabular-nums">{row.monthNumber}</td>
                         <td className="px-3 py-1.5">
-                          <input
-                            type="number"
+                          <NumberField
+                            min={0}
+                            aria-label={`Month ${row.monthNumber} nonPrizedInstallment`}
                             value={row.nonPrizedInstallment}
-                            onChange={(e) =>
-                              updateRowField(idx, 'nonPrizedInstallment', Number(e.target.value))
-                            }
+                            onValueChange={(v) => updateRowField(idx, 'nonPrizedInstallment', v)}
                             className="w-28 rounded border border-[#0B3B2E]/20 px-2 py-1 font-semibold tabular-nums"
                           />
                         </td>
                         <td className="px-3 py-1.5">
-                          <input
-                            type="number"
+                          <NumberField
+                            min={0}
+                            aria-label={`Month ${row.monthNumber} chitValue`}
                             value={row.chitValue}
-                            onChange={(e) =>
-                              updateRowField(idx, 'chitValue', Number(e.target.value))
-                            }
+                            onValueChange={(v) => updateRowField(idx, 'chitValue', v)}
                             className="w-32 rounded border border-[#0B3B2E]/20 px-2 py-1 font-semibold tabular-nums"
                           />
                         </td>
                         <td className="px-3 py-1.5">
-                          <input
-                            type="number"
+                          <NumberField
+                            min={0}
+                            aria-label={`Month ${row.monthNumber} prizedInstallment`}
                             value={row.prizedInstallment}
-                            onChange={(e) =>
-                              updateRowField(idx, 'prizedInstallment', Number(e.target.value))
-                            }
+                            onValueChange={(v) => updateRowField(idx, 'prizedInstallment', v)}
                             className="w-28 rounded border border-[#0B3B2E]/20 px-2 py-1 font-semibold tabular-nums"
                           />
                         </td>

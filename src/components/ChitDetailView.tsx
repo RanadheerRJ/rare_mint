@@ -29,6 +29,7 @@ import {
 } from '../utils/format';
 import { PassbookTable } from './PassbookTable';
 import { LiftCalculator } from './LiftCalculator';
+import { NumberField } from './NumberField';
 
 interface ChitDetailViewProps {
   groupId: number;
@@ -572,13 +573,11 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
                     <label className="block text-xs font-semibold text-[#55655E]">
                       Winning Bid Discount (₹)
                     </label>
-                    <input
-                      type="number"
+                    <NumberField
                       min={auctionPreview.comm}
-                      max={Math.round((group.faceValue * group.maxBidPct) / 100)}
-                      step={500}
+                      max={Math.max(auctionPreview.comm, Math.round((group.faceValue * group.maxBidPct) / 100))}
                       value={bidDiscount}
-                      onChange={(e) => setBidDiscount(Number(e.target.value))}
+                      onValueChange={setBidDiscount}
                       className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3 py-2 text-sm font-bold tabular-nums"
                     />
                   </div>
