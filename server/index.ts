@@ -3,10 +3,12 @@ import http from 'node:http';
 import path from 'node:path';
 import fs from 'node:fs';
 import { initDatabase } from './db';
+import { seedDeveloperFromEnv } from './seed';
 import { apiRouter } from './routes';
 
 async function bootstrap() {
   initDatabase();
+  seedDeveloperFromEnv();
 
   const app = express();
   const httpServer = http.createServer(app);
