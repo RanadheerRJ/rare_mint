@@ -1,5 +1,5 @@
-const STATIC_CACHE = 'raremint-static-v4';
-const API_CACHE = 'raremint-api-v4';
+const STATIC_CACHE = 'raremint-static-v5';
+const API_CACHE = 'raremint-api-v5';
 const CORE_ASSETS = [
   './',
   './index.html',
@@ -39,6 +39,13 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+
+  // Health probes must always hit the network: a cached /api/health would make
+  // a dead server look alive and turn every write into a confusing failure.
+  if (url.pathname.endsWith('/api/health')) {
+    event.respondWith(fetch(request));
+    return;
+  }
 
   if (url.pathname.includes('/api/')) {
     event.respondWith(

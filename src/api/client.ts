@@ -31,9 +31,12 @@ export function getStorageMode(): Promise<StorageBackendMode> {
     try {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 1500);
-      const res = await fetch('./api/health', {
+      // Cache-busted and uncached: a stale service-worker copy of /api/health
+      // must never make a dead server look alive (writes would fail later).
+      const res = await fetch(`./api/health?probe=${Date.now()}`, {
         headers: { Accept: 'application/json' },
         signal: ctrl.signal,
+        cache: 'no-store',
       });
       clearTimeout(timer);
       const ct = res.headers.get('content-type') || '';
@@ -101,7 +104,9 @@ function genericErrorFor(status: number): string {
   if (status === 404) return 'Not found.';
   if (status === 413) return 'The request was too large.';
   if (status === 409 || status === 422) return 'This change conflicts with the current data.';
-  return 'The server returned an unexpected error. Please try again shortly.';
+  // The status code is included so a proxy/gateway failure (502/503/504) can be
+  // told apart from an application crash (500) when reporting the problem.
+  return `The server returned an unexpected error. Please try again shortly. (HTTP ${status})`;
 }
 
 /**
@@ -145,7 +150,10 @@ async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
     if (parseFailed) {
       // A 2xx response whose body is not JSON (e.g. a proxy error page) must not
       // be treated as success — and the parser message must not leak to users.
-      throw new HttpError('The server sent an unexpected response. Please try again.', res.status);
+      throw new HttpError(
+        `The server sent an unexpected response. Please try again. (HTTP ${res.status})`,
+        res.status
+      );
     }
     if (isGet) {
       try {
@@ -170,7 +178,10 @@ async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
     // fetch-level failure (offline, DNS, TLS, proxy interruption …): give an
     // actionable message instead of a raw browser string such as "Load failed"
     // or Safari's "The string did not match the expected pattern."
-    throw new HttpError('Unable to reach the Rare Mint server. Check your internet connection and try again.', 0);
+    throw new HttpError(
+      'Cannot reach the Rare Mint server. Make sure the server is running and check your internet connection.',
+      0
+    );
   }
 }
 
