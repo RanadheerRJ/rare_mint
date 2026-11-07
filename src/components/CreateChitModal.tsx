@@ -241,7 +241,7 @@ export const CreateChitModal: React.FC<CreateChitModalProps> = ({ onClose, onCre
               <label className="block text-xs font-semibold text-[#55655E]">
                 Duration / Total Tickets
               </label>
-              <div className="mt-1 flex gap-2">
+              <div className="mt-1 flex flex-wrap gap-2">
                 <NumberField
                   required
                   min={MIN_MONTHS}
@@ -346,8 +346,8 @@ export const CreateChitModal: React.FC<CreateChitModalProps> = ({ onClose, onCre
                 </span>
               </div>
 
-              <div className="max-h-64 overflow-y-auto">
-                <table className="w-full text-left text-xs">
+              <div className="max-h-64 overflow-y-auto overflow-x-auto rm-scroll-x">
+                <table className="w-full min-w-[420px] text-left text-xs">
                   <thead className="sticky top-0 bg-[#FAF8F4] text-[11px] font-bold text-[#55655E] uppercase">
                     <tr>
                       <th className="px-3 py-2 w-14">S.No.</th>

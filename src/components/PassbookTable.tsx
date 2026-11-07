@@ -166,7 +166,7 @@ export const PassbookTable: React.FC<PassbookTableProps> = ({
         </div>
 
         {/* Authentic Ledger Table matching the Physical Chit Card */}
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto rm-scroll-x">
           <table className="w-full min-w-[760px] border-collapse text-left text-sm">
             <thead>
               <tr className="border-b-2 border-[#0B3B2E]/25 bg-[#F2EDE1] text-[11px] font-bold tracking-wider text-[#14201C] uppercase">

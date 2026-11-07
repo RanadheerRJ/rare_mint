@@ -108,7 +108,74 @@ export const DuesAndReceiptsView: React.FC<DuesAndReceiptsViewProps> = ({
 
       {subTab === 'dues' ? (
         <div className="overflow-hidden rounded-2xl border border-[#0B3B2E]/15 bg-white">
-          <div className="overflow-x-auto">
+          {/* Mobile: stacked due cards */}
+          <div className="md:hidden divide-y divide-[#0B3B2E]/10">
+            {filteredDues.length === 0 && (
+              <p className="p-6 text-center text-sm text-[#55655E]">
+                No pending dues match your filter.
+              </p>
+            )}
+            {filteredDues.map((d) => {
+              const waUrl = buildWhatsAppLink(
+                d.memberPhone,
+                buildDueReminderWhatsAppText(d)
+              );
+              return (
+                <div key={`${d.memberSlotId}-${d.monthNumber}`} className="space-y-2.5 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-semibold text-sm text-[#14201C]">{d.memberName}</p>
+                      <p className="text-[11px] text-[#55655E]">
+                        Ticket #{d.ticketNumber} ·{' '}
+                        {d.isPrizedSubscriber ? 'Prized Subscriber' : 'Non-Prized Subscriber'}
+                      </p>
+                    </div>
+                    <span className="text-sm font-bold text-[#0B3B2E] tabular-nums">
+                      {formatPassbookAmount(d.amountDue)}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-1.5">
+                    <p className="text-xs text-[#55655E]">
+                      {d.chitName} · {d.chitCode} · Month {d.monthNumber}
+                    </p>
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                        d.isOverdue
+                          ? 'bg-red-100 text-red-800'
+                          : 'bg-amber-100 text-amber-900'
+                      }`}
+                    >
+                      {d.isOverdue
+                        ? `Overdue · ${formatIndianDate(d.dueDate)}`
+                        : `Due ${formatIndianDate(d.dueDate)}`}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => onOpenGroup(d.chitGroupId)}
+                      className="rounded-lg bg-[#0B3B2E] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#135341]"
+                    >
+                      {isOrganizer ? 'Collect' : 'Pay Now'}
+                    </button>
+                    {isOrganizer && (
+                      <a
+                        href={waUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 rounded-lg bg-emerald-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800"
+                      >
+                        <MessageCircle className="h-3.5 w-3.5" />
+                        WhatsApp
+                      </a>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Desktop: data table */}
+          <div className="hidden md:block overflow-x-auto rm-scroll-x">
             <table className="w-full min-w-[680px] text-left text-sm">
               <thead>
                 <tr className="border-b border-[#0B3B2E]/15 bg-[#FAF8F4] text-[11px] font-bold tracking-wider text-[#55655E] uppercase">
@@ -195,7 +262,50 @@ export const DuesAndReceiptsView: React.FC<DuesAndReceiptsViewProps> = ({
         </div>
       ) : (
         <div className="overflow-hidden rounded-2xl border border-[#0B3B2E]/15 bg-white">
-          <div className="overflow-x-auto">
+          {/* Mobile: stacked receipt cards */}
+          <div className="md:hidden divide-y divide-[#0B3B2E]/10">
+            {filteredReceipts.length === 0 && (
+              <p className="p-6 text-center text-sm text-[#55655E]">
+                No signed receipts match your filter.
+              </p>
+            )}
+            {filteredReceipts.map((r) => (
+              <div
+                key={r.id}
+                onClick={() => onOpenReceipt(r)}
+                className="cursor-pointer p-4 transition hover:bg-[#FAF8F4]"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="font-mono text-xs font-bold text-[#0B3B2E]">{r.receiptNumber}</p>
+                    <p className="font-semibold text-sm text-[#14201C]">
+                      {r.memberName} · Ticket #{r.ticketNumber}
+                    </p>
+                    <p className="text-[11px] text-[#55655E]">
+                      {r.chitName} · Month {r.monthNumber}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-[#0B3B2E] tabular-nums">
+                      {formatPassbookAmount(r.amountPaid)}
+                    </p>
+                    <p className="text-[11px] text-[#55655E]">
+                      {formatIndianDate(r.paidDate)} · {r.paymentMethod.replace('_', ' ')}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-2 flex justify-end">
+                  <span className="inline-flex items-center gap-1 rounded-lg border border-emerald-800/20 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-900">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-700" />
+                    View & Share
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop: data table */}
+          <div className="hidden md:block overflow-x-auto rm-scroll-x">
             <table className="w-full min-w-[680px] text-left text-sm">
               <thead>
                 <tr className="border-b border-[#0B3B2E]/15 bg-[#FAF8F4] text-[11px] font-bold tracking-wider text-[#55655E] uppercase">
