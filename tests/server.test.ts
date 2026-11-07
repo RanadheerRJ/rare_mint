@@ -83,11 +83,10 @@ before(async () => {
   dbModule.initDatabase();
   const { seedDeveloperFromEnv } = await import('../server/seed');
   seedDeveloperFromEnv();
-  const { apiRouter } = await import('../server/routes');
+  const { mountApi } = await import('../server/routes');
 
   const app = express();
-  app.use(express.json());
-  app.use('/api', apiRouter);
+  mountApi(app);
   server = app.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server!.once('listening', resolve));
   base = `http://127.0.0.1:${(server!.address() as AddressInfo).port}/api`;
@@ -728,4 +727,34 @@ test('partial payments: part payment, top-up, overpay rejection and full-payment
   assert.ok(due3, 'voiding the top-up must reopen the month');
   assert.equal(due3.amountDue, 6000);
   assert.equal(due3.amountPaid, 4000);
+});
+
+test('every API error answers with JSON, never an HTML error page', async () => {
+  // Malformed JSON body → body-parser error → must come back as a JSON 400
+  // (regression: errors used to fall through to Express's HTML error page,
+  // which clients could only report as a generic failure).
+  const res = await fetch(`${base}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{"phone":',
+  });
+  const text = await res.text();
+  assert.equal(res.status, 400);
+  assert.match(String(res.headers.get('content-type')), /application\/json/);
+  const body = JSON.parse(text) as { error: unknown };
+  assert.equal(typeof body.error, 'string');
+  assert.ok(String(body.error).length > 0);
+
+  // A body-less write to a route that throws a plain error must also be JSON.
+  const devToken = (await login(DEV_PHONE, DEV_PIN)).body.token;
+  const owner = await inviteOwner(devToken, 'Owner Json', '9333333388', '8888');
+  const token: string = (await login(owner.phone, '8888')).body.token;
+  const missing = await fetch(`${base}/chits/999999/payments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ memberSlotId: 1, monthNumber: 1, amountPaid: 1 }),
+  });
+  assert.equal(missing.headers.get('content-type')?.includes('application/json'), true);
+  const missingBody = (await missing.json()) as { error: unknown };
+  assert.equal(typeof missingBody.error, 'string');
 });
