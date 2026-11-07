@@ -22,12 +22,12 @@ export const CreateChitModal: React.FC<CreateChitModalProps> = ({
   onCreated,
 }) => {
   const defaultPreset = CHIT_PRESETS[0];
-  const [name, setName] = useState('Banjara Hills ₹5,00,000 Slab Chit');
-  const [code, setCode] = useState(`RM-5L-${Math.floor(10 + Math.random() * 89)}`);
+  const [name, setName] = useState('');
+  const [code, setCode] = useState('');
   const [chitType, setChitType] = useState<ChitType>(defaultPreset.chitType);
   const [faceValue, setFaceValue] = useState<number>(defaultPreset.faceValue);
   const [durationMonths, setDurationMonths] = useState<number>(defaultPreset.durationMonths);
-  const [startDate, setStartDate] = useState<string>('2026-11-10');
+  const [startDate, setStartDate] = useState<string>(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()));
   const [dueDay, setDueDay] = useState<number>(10);
   const [foremanCommissionPct, setForemanCommissionPct] = useState<number>(5);
   const [maxBidPct, setMaxBidPct] = useState<number>(35);

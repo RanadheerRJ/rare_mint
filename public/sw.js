@@ -1,5 +1,5 @@
-const STATIC_CACHE = 'raremint-static-v2';
-const API_CACHE = 'raremint-api-v2';
+const STATIC_CACHE = 'raremint-static-v3';
+const API_CACHE = 'raremint-api-v3';
 const CORE_ASSETS = [
   './',
   './index.html',

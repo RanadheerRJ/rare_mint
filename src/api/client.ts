@@ -80,19 +80,8 @@ async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
   }
 }
 
-export interface DemoAccount extends User {
-  badge: string;
-}
-
 export const api = {
   getStorageMode,
-
-  getDefaultOrganizer: () => localStore.getDefaultOrganizer(),
-
-  getDemoAccounts: async (): Promise<{ accounts: DemoAccount[] }> => {
-    if ((await getStorageMode()) === 'static') return localStore.getDemoAccounts();
-    return requestJson<{ accounts: DemoAccount[] }>('./api/demo-accounts');
-  },
 
   login: async (phone: string, pin: string): Promise<{ user: User }> => {
     if ((await getStorageMode()) === 'static') return localStore.login(phone, pin);
@@ -167,6 +156,8 @@ export const api = {
     groupId: number,
     payload: {
       ticketNumber: number;
+      organizerId: number;
+      newMemberPin?: string;
       userId?: number;
       newMemberName?: string;
       newMemberPhone?: string;
@@ -241,5 +232,4 @@ export const api = {
 
   exportBackupJson: () => localStore.exportBackupJson(),
   importBackupJson: (raw: string) => localStore.importBackupJson(raw),
-  resetToDefaultSeed: () => localStore.resetToDefaultSeed(),
 };

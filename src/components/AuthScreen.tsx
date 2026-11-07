@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
-import { ArrowRight, Lock, Phone, ShieldCheck, Sparkles, UserCheck } from 'lucide-react';
+import React, { useState } from 'react';
+import { Lock, Phone, ShieldCheck, UserCheck } from 'lucide-react';
 import { User } from '../types';
-import { DemoAccount, api } from '../api/client';
+import { api } from '../api/client';
 
 interface AuthScreenProps {
   onAuthenticated: (user: User) => void;
@@ -9,34 +9,13 @@ interface AuthScreenProps {
 
 export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
   const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [demoAccounts, setDemoAccounts] = useState<DemoAccount[]>([]);
-  const [phone, setPhone] = useState('9848011111');
-  const [pin, setPin] = useState('1234');
+  const [phone, setPhone] = useState('');
+  const [pin, setPin] = useState('');
   const [name, setName] = useState('');
-  const [role, setRole] = useState<'organizer' | 'member'>('member');
+  const [role, setRole] = useState<'organizer' | 'member'>('organizer');
   const [city, setCity] = useState('Hyderabad');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    api
-      .getDemoAccounts()
-      .then(({ accounts }) => setDemoAccounts(accounts))
-      .catch(() => {});
-  }, []);
-
-  const handleQuickDemo = async (acc: DemoAccount) => {
-    setError(null);
-    setLoading(true);
-    try {
-      const { user } = await api.login(acc.phone, '1234');
-      onAuthenticated(user);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Quick sign-in failed');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,36 +57,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
 
           <p className="text-sm leading-relaxed text-[#2E3D37]">
             Built for both <strong>Chit Organizers (Foremen)</strong> and <strong>Subscribers</strong>.
-            Manage pre-fixed passbook schedules (Non-Prized vs Prized ₹37,000/- & bonus months) and
-            monthly dividend auctions, calculate the optimal month to lift, and share signed receipts.
+            Manage fixed passbook schedules and monthly dividend auctions, calculate the optimal month to lift, and share signed receipts.
           </p>
 
-          {/* 1-Tap Demo Role Cards */}
-          {demoAccounts.length > 0 && (
-            <div className="rounded-2xl border border-[#0B3B2E]/15 bg-white p-4 shadow-xs space-y-2.5">
-              <div className="flex items-center gap-1.5 text-xs font-bold tracking-wider text-[#0B3B2E] uppercase">
-                <Sparkles className="h-3.5 w-3.5 text-[#B8860B]" />
-                1-Tap Instant Role Preview
-              </div>
-              {demoAccounts.map((acc) => (
-                <button
-                  key={acc.id}
-                  type="button"
-                  disabled={loading}
-                  onClick={() => handleQuickDemo(acc)}
-                  className="flex w-full items-center justify-between rounded-xl border border-[#0B3B2E]/12 bg-[#FAF8F4] px-3.5 py-2.5 text-left transition hover:border-[#0B3B2E] hover:bg-emerald-50/50"
-                >
-                  <div>
-                    <p className="text-sm font-bold text-[#14201C]">{acc.name}</p>
-                    <p className="text-xs text-[#55655E]">{acc.badge}</p>
-                  </div>
-                  <span className="inline-flex items-center gap-1 rounded-lg bg-[#0B3B2E] px-2.5 py-1 text-xs font-semibold text-white">
-                    Enter <ArrowRight className="h-3 w-3" />
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
+
         </div>
 
         {/* Right Sign-in / Register Card */}
@@ -216,7 +169,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
                 <input
                   type="password"
                   required
-                  maxLength={8}
+                  maxLength={4}
+                  minLength={4}
+                  pattern="[0-9]{4}"
+                  inputMode="numeric"
                   value={pin}
                   onChange={(e) => setPin(e.target.value)}
                   className="w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] py-2.5 pr-3.5 pl-10 text-sm font-semibold focus:border-[#0B3B2E] focus:outline-none"

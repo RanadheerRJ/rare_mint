@@ -165,24 +165,6 @@ apiRouter.get('/health', (_req: Request, res: Response) => {
   res.json({ ok: true, today: getTodayIST() });
 });
 
-apiRouter.get('/demo-accounts', (_req: Request, res: Response) => {
-  const phones = ['9848011111', '9848022222', '9848033333'];
-  const accounts = phones
-    .map((phone) => {
-      const row = db.prepare('SELECT * FROM users WHERE phone = ?').get(phone) as
-        | Record<string, unknown>
-        | undefined;
-      if (!row) return null;
-      const u = mapUserRow(row);
-      let badge = 'Chit Organizer / Foreman';
-      if (phone === '9848022222') badge = 'Member · Non-Prized Saver (2 Chits)';
-      if (phone === '9848033333') badge = 'Member · Prized in Month 4 (₹5L Lifted)';
-      return { ...u, badge };
-    })
-    .filter(Boolean);
-  res.json({ accounts });
-});
-
 apiRouter.post('/auth/login', (req: Request, res: Response) => {
   const { phone, pin } = req.body as { phone?: string; pin?: string };
   const cleanPhone = (phone || '').replace(/\D/g, '').slice(-10);
@@ -196,7 +178,7 @@ apiRouter.post('/auth/login', (req: Request, res: Response) => {
     .get(cleanPhone, String(pin).trim()) as Record<string, unknown> | undefined;
 
   if (!row) {
-    res.status(401).json({ error: 'Invalid mobile number or PIN. (Demo accounts use PIN 1234)' });
+    res.status(401).json({ error: 'Invalid mobile number or PIN.' });
     return;
   }
 
@@ -213,7 +195,7 @@ apiRouter.post('/auth/register', (req: Request, res: Response) => {
   };
 
   const cleanPhone = (phone || '').replace(/\D/g, '').slice(-10);
-  if (!name?.trim() || cleanPhone.length !== 10 || !pin?.trim()) {
+  if (!name?.trim() || cleanPhone.length !== 10 || !/^\d{4}$/.test(pin || '')) {
     res.status(400).json({ error: 'Name, 10-digit mobile number, and 4-digit PIN are required.' });
     return;
   }
@@ -227,7 +209,7 @@ apiRouter.post('/auth/register', (req: Request, res: Response) => {
   const validRole = role === 'organizer' ? 'organizer' : 'member';
   const result = db
     .prepare('INSERT INTO users (name, phone, pin, role, city) VALUES (?, ?, ?, ?, ?)')
-    .run(name.trim(), cleanPhone, pin.trim(), validRole, (city || 'Hyderabad').trim());
+    .run(name.trim(), cleanPhone, pin!.trim(), validRole, (city || 'Hyderabad').trim());
 
   const newUser = db
     .prepare('SELECT * FROM users WHERE id = ?')
@@ -267,6 +249,8 @@ apiRouter.get('/chits', (req: Request, res: Response) => {
          ORDER BY cg.id ASC`
       )
       .all(viewer.id) as Array<Record<string, unknown>>;
+  } else if (viewer?.role === 'organizer') {
+    groupRows = db.prepare(`SELECT cg.*, u.name as organizer_name, u.phone as organizer_phone FROM chit_groups cg JOIN users u ON u.id = cg.organizer_id WHERE cg.organizer_id = ? ORDER BY cg.id ASC`).all(viewer.id) as Array<Record<string, unknown>>;
   } else {
     groupRows = db
       .prepare(
@@ -521,8 +505,10 @@ apiRouter.post('/chits', (req: Request, res: Response) => {
 
 apiRouter.post('/chits/:id/slots', (req: Request, res: Response) => {
   const groupId = Number(req.params.id);
-  const { ticketNumber, userId, newMemberName, newMemberPhone, newMemberCity } = req.body as {
+  const { ticketNumber, userId, newMemberName, newMemberPhone, newMemberCity, newMemberPin, organizerId } = req.body as {
     ticketNumber?: number;
+    organizerId?: number;
+    newMemberPin?: string;
     userId?: number;
     newMemberName?: string;
     newMemberPhone?: string;
@@ -537,8 +523,13 @@ apiRouter.post('/chits/:id/slots', (req: Request, res: Response) => {
     return;
   }
 
+  const owner = db.prepare("SELECT id FROM users WHERE id = ? AND role = 'organizer'").get(Number(organizerId || 0));
+  if (!owner || Number(groupRow.organizer_id) !== Number(organizerId)) {
+    res.status(403).json({ error: 'Only the chit owner can add members.' });
+    return;
+  }
   const tNum = Number(ticketNumber);
-  if (!tNum || tNum < 1 || tNum > Number(groupRow.total_slots)) {
+  if (!Number.isInteger(tNum) || tNum < 1 || tNum > Number(groupRow.total_slots)) {
     res.status(400).json({ error: `Ticket number must be between 1 and ${groupRow.total_slots}.` });
     return;
   }
@@ -563,19 +554,30 @@ apiRouter.post('/chits/:id/slots', (req: Request, res: Response) => {
       | { id: number }
       | undefined;
     if (existingUser) {
-      targetUserId = Number(existingUser.id);
+      res.status(409).json({ error: 'A user with this phone already exists. Select them from the existing directory.' });
+      return;
     } else {
+      if (!/^\d{4}$/.test(newMemberPin || '')) {
+        res.status(400).json({ error: 'Enter a 4-digit PIN for the new member.' });
+        return;
+      }
       const uRes = db
         .prepare('INSERT INTO users (name, phone, pin, role, city) VALUES (?, ?, ?, ?, ?)')
         .run(
           newMemberName.trim(),
           cleanPhone,
-          '1234',
+          newMemberPin!,
           'member',
           (newMemberCity || 'Hyderabad').trim()
         );
       targetUserId = Number(uRes.lastInsertRowid);
     }
+  }
+
+  const targetMember = db.prepare("SELECT id FROM users WHERE id = ? AND role = 'member'").get(targetUserId);
+  if (!targetMember) {
+    res.status(404).json({ error: 'Member not found.' });
+    return;
   }
 
   const slotRes = db
@@ -907,6 +909,7 @@ apiRouter.get('/dues', (req: Request, res: Response) => {
   const dues: DueItem[] = [];
 
   for (const g of groups) {
+    if (viewer?.role === 'organizer' && Number(g.organizer_id) !== viewer.id) continue;
     const groupId = Number(g.id);
     const chitType = g.chit_type as ChitType;
     const currentMonth = Number(g.current_month);
@@ -1019,6 +1022,12 @@ apiRouter.get('/receipts', (req: Request, res: Response) => {
              ORDER BY p.paid_date DESC, p.id DESC`
           )
           .all(viewer.id) as Array<Record<string, unknown>>)
+      : viewer?.role === 'organizer'
+      ? (db.prepare(`SELECT p.*, ms.ticket_number, u.name as member_name, u.phone as member_phone,
+                    cg.name as chit_name, cg.code as chit_code
+             FROM payments p JOIN member_slots ms ON ms.id = p.member_slot_id
+             JOIN users u ON u.id = ms.user_id JOIN chit_groups cg ON cg.id = p.chit_group_id
+             WHERE cg.organizer_id = ? ORDER BY p.paid_date DESC, p.id DESC LIMIT 150`).all(viewer.id) as Array<Record<string, unknown>>)
       : (db
           .prepare(
             `SELECT p.*, ms.ticket_number, u.name as member_name, u.phone as member_phone,
