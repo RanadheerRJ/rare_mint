@@ -1,4 +1,4 @@
-import { Router, type NextFunction, type Request, type Response } from 'express';
+import express, { Router, type Express, type NextFunction, type Request, type Response } from 'express';
 import { AuthError, type AuthProvider } from './auth/types';
 import { SqliteAuthProvider } from './auth/sqliteAuthProvider';
 import { actingUser, requireAuth, requireRole } from './auth/middleware';
@@ -362,3 +362,51 @@ apiRouter.get(
     res.json(ledgerService.getReceipts(actingUser(req)));
   })
 );
+
+// ------------------------------------------------------------- error handling
+
+/**
+ * Catch-all error handler: every /api error must answer with JSON. Without it,
+ * unexpected errors fall through to Express's default HTML error page and the
+ * client can only report a generic failure. body-parser errors carry their own
+ * status (400 malformed JSON, 413 too large); everything else is a 500. In
+ * development the real error message is returned so causes like "database is
+ * locked" are visible immediately; in production it is only logged.
+ *
+ * Mounted at the app level (see server/index.ts) right after the API router:
+ * errors from the body parser happen before the router is entered, so a
+ * handler registered on the router itself would never see them.
+ */
+export function apiErrorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction): void {
+  if (res.headersSent) return;
+  const isProd = process.env.NODE_ENV === 'production';
+  const status =
+    typeof (err as { status?: unknown })?.status === 'number'
+      ? (err as { status: number }).status
+      : typeof (err as { statusCode?: unknown })?.statusCode === 'number'
+        ? (err as { statusCode: number }).statusCode
+        : 500;
+  const detail = err instanceof Error ? err.message : String(err);
+  console.error(`[rare-mint] API error (${status}):`, err);
+  const message =
+    status >= 400 && status < 500
+      ? isProd
+        ? 'The request could not be processed. Please check the data and try again.'
+        : detail
+      : isProd
+        ? 'Unexpected server error. Details were written to the server console.'
+        : detail;
+  res.status(status >= 400 && status <= 599 ? status : 500).json({ error: message });
+}
+
+/**
+ * Body parser + API routes + JSON error handler, in the only correct order.
+ * Body-parser failures happen before the router is entered, so the error
+ * handler must be mounted at the app level after the router. Tests and the
+ * production server both build the app through this function.
+ */
+export function mountApi(app: Express): void {
+  app.use(express.json({ limit: '2mb' }));
+  app.use('/api', apiRouter);
+  app.use(apiErrorHandler);
+}

@@ -4,7 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { initDatabase } from './db';
 import { seedDeveloperFromEnv } from './seed';
-import { apiRouter } from './routes';
+import { mountApi } from './routes';
 
 async function bootstrap() {
   initDatabase();
@@ -15,8 +15,7 @@ async function bootstrap() {
   const port = Number(process.env.PORT || 3000);
   const isProd = process.env.NODE_ENV === 'production';
 
-  app.use(express.json({ limit: '2mb' }));
-  app.use('/api', apiRouter);
+  mountApi(app);
 
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');

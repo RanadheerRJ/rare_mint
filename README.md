@@ -66,6 +66,16 @@ Locally, the app uses SQLite in `data/rare_mint.sqlite`. GitHub Pages uses a bro
 
 Existing SQLite databases are migrated automatically on startup (one-time): plaintext PINs are hashed, the `developer` role, `is_active`, `sessions`, `login_locks`, `audit_log` and payment `POSTED`/`VOID` status are added, and the one-payment-per-month unique index becomes a plain lookup index (partial payments).
 
+### Troubleshooting
+
+| Message | What it means |
+| --- | --- |
+| `Cannot reach the Rare Mint server…` | The Node server is not running or unreachable — start it with `npm run dev` (or `npm start`). |
+| `…unexpected error… (HTTP 500)` | The server process hit an unexpected error. The exact cause is printed in the terminal running the server (and shown in the app when started with `npm run dev`) — e.g. `database is locked` (a second server process is using `data/`) or `disk is full`. |
+| `…unexpected error… (HTTP 502/503/504)` | A proxy or gateway in front of the server could not reach it — the server is down or restarting. |
+
+Run **one** server process per `data/` folder (two processes cause `database is locked` errors), and keep `data/` out of cloud-synced folders (OneDrive/Dropbox), which can corrupt the SQLite file. Reads are cached for offline use, but the app always checks the server live before write actions.
+
 ### Static / GitHub Pages mode (demo only)
 
 The static build on GitHub Pages has no server, so **invite-only features need the server**: no owner invites, no sessions, no shared ledger. Static self-registration is disabled by default; to run a local demo with the browser ledger, enable demo mode in the browser console:
