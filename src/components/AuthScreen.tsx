@@ -100,7 +100,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Vikramaditya Rao"
+                    placeholder="Full name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3.5 py-2.5 text-sm font-medium focus:border-[#0B3B2E] focus:outline-none"

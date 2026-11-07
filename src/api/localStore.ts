@@ -13,8 +13,11 @@ import {
   addMonthsToDate,
   getMemberPayableForMonth,
 } from '../utils/chitFinance';
+import { purgeLegacyDemoData } from '../utils/legacyDemo';
 
 const STORAGE_KEY = 'rm_static_ledger_v1';
+/** Version 2+ ledgers have been cleaned of the demo data seeded by early builds. */
+const LEDGER_VERSION = 2;
 
 interface StoredUser extends User {
   pin: string;
@@ -78,7 +81,19 @@ function computeSimpleSig(receiptNo: string, slotId: number, month: number, amou
 }
 
 function createEmptyState(): LedgerState {
-  return { version: 1, users: [], chitGroups: [], schedules: [], slots: [], payments: [] };
+  return { version: LEDGER_VERSION, users: [], chitGroups: [], schedules: [], slots: [], payments: [] };
+}
+
+function needsMigration(state: LedgerState): boolean {
+  return !(Number(state.version) >= LEDGER_VERSION);
+}
+
+function migrateLedger(state: LedgerState): void {
+  state.schedules = Array.isArray(state.schedules) ? state.schedules : [];
+  state.slots = Array.isArray(state.slots) ? state.slots : [];
+  state.payments = Array.isArray(state.payments) ? state.payments : [];
+  purgeLegacyDemoData(state);
+  state.version = LEDGER_VERSION;
 }
 
 function readState(): LedgerState {
@@ -87,6 +102,10 @@ function readState(): LedgerState {
     if (raw) {
       const parsed = JSON.parse(raw) as LedgerState;
       if (parsed && Array.isArray(parsed.users) && Array.isArray(parsed.chitGroups)) {
+        if (needsMigration(parsed)) {
+          migrateLedger(parsed);
+          saveState(parsed);
+        }
         return parsed;
       }
     }
@@ -673,6 +692,7 @@ export const localStore = {
     if (!parsed || !Array.isArray(parsed.users) || !Array.isArray(parsed.chitGroups)) {
       throw new Error('Invalid Rare Mint ledger backup file.');
     }
+    if (needsMigration(parsed)) migrateLedger(parsed);
     saveState(parsed);
   },
 

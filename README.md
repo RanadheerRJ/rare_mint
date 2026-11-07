@@ -17,7 +17,17 @@ The create-chit screen includes optional schedule templates; these are editable 
 
 ## Storage and existing installations
 
-Locally, the app uses SQLite in `data/rare_mint.sqlite`. GitHub Pages uses a browser-local ledger instead; its data is not shared between devices or browsers. Use the JSON backup/restore controls in static mode to transfer it. Existing databases and browser ledgers are **not automatically erased**, since they may contain real entries alongside old demo data. Back up any data you need before manually clearing a legacy ledger or replacing the SQLite database. A fresh database/browser starts empty.
+Locally, the app uses SQLite in `data/rare_mint.sqlite`. GitHub Pages uses a browser-local ledger instead; its data is not shared between devices or browsers. Use the JSON backup/restore controls in static mode to transfer it. A fresh database/browser starts empty. Demo records seeded by early builds (the sample organizer, its 20 sample members, the `RM-5L-16M` / `RM-2L-20M` chits and their tickets and payments) are removed automatically, once, from existing SQLite databases, browser ledgers and restored JSON backups. Saved demo sign-ins and cached demo responses are cleared too. Entries you created yourself are kept.
+
+## Development checks
+
+```bash
+npm run typecheck
+npm test
+npm run build
+```
+
+CI runs these checks on every push. Only `main` deploys to GitHub Pages.
 
 ## Security limitations
 

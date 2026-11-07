@@ -620,7 +620,7 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. NEFT/UTR902811"
+                  placeholder="Payout reference (optional)"
                   value={payoutRef}
                   onChange={(e) => setPayoutRef(e.target.value)}
                   className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3 py-2 text-sm"
@@ -757,7 +757,7 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
               </label>
               <input
                 type="text"
-                placeholder="e.g. GPay UTR 63192011"
+                placeholder="UPI / UTR reference (optional)"
                 value={payRef}
                 onChange={(e) => setPayRef(e.target.value)}
                 className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3.5 py-2 text-sm"
@@ -849,7 +849,7 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Karthikeya Reddy"
+                    placeholder="Full name"
                     value={newMemberName}
                     onChange={(e) => setNewMemberName(e.target.value)}
                     className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3.5 py-2 text-sm"
@@ -862,7 +862,7 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
                   <input
                     type="tel"
                     required
-                    placeholder="98480XXXXX"
+                    placeholder="10-digit mobile number"
                     value={newMemberPhone}
                     onChange={(e) => setNewMemberPhone(e.target.value)}
                     className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3.5 py-2 text-sm tabular-nums"
