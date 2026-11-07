@@ -195,19 +195,31 @@ export class LedgerService {
         .filter((s) => s.monthNumber <= chit.currentMonth);
       const allSlots = this.repos.slots.listByChit(chit.id);
       const slots = isMemberView ? allSlots.filter((s) => s.userId === user.id) : allSlots;
-      const paidSet = new Set(
-        this.repos.payments
-          .listByChit(chit.id)
-          .filter((p) => p.status === 'POSTED')
-          .map((p) => `${p.memberSlotId}:${p.monthNumber}`)
-      );
+      // Partial payments: a month stays due while its POSTED receipts sum to
+      // less than the payable amount; amountDue is the remaining balance.
+      const paidSumBySlotMonth = new Map<string, number>();
+      for (const p of this.repos.payments.listByChit(chit.id)) {
+        if (p.status !== 'POSTED') continue;
+        const key = `${p.memberSlotId}:${p.monthNumber}`;
+        paidSumBySlotMonth.set(key, (paidSumBySlotMonth.get(key) ?? 0) + p.amountPaid);
+      }
       const organizer = this.repos.users.findById(chit.organizerId);
 
       for (const sched of schedules) {
         const dueDate = sched.chitDate;
         const diffDays = daysBetween(today, dueDate);
         for (const slot of slots) {
-          if (paidSet.has(`${slot.id}:${sched.monthNumber}`)) continue;
+          const expectedAmount = getMemberPayableForMonth(
+            chit.chitType,
+            {
+              monthNumber: sched.monthNumber,
+              nonPrizedInstallment: sched.nonPrizedInstallment,
+              prizedInstallment: sched.prizedInstallment,
+            },
+            slot.prizedMonth
+          );
+          const paidSum = paidSumBySlotMonth.get(`${slot.id}:${sched.monthNumber}`) ?? 0;
+          if (paidSum >= expectedAmount) continue;
           const isPrized = slot.prizedMonth !== null && slot.prizedMonth < sched.monthNumber;
           dues.push({
             chitGroupId: chit.id,
@@ -223,15 +235,8 @@ export class LedgerService {
             memberName: slot.memberName,
             memberPhone: slot.memberPhone,
             isPrizedSubscriber: isPrized,
-            amountDue: getMemberPayableForMonth(
-              chit.chitType,
-              {
-                monthNumber: sched.monthNumber,
-                nonPrizedInstallment: sched.nonPrizedInstallment,
-                prizedInstallment: sched.prizedInstallment,
-              },
-              slot.prizedMonth
-            ),
+            amountDue: expectedAmount - paidSum,
+            amountPaid: paidSum,
             organizerName: organizer?.name ?? 'Foreman',
           });
         }
@@ -724,11 +729,6 @@ export class LedgerService {
     const schedRow = this.repos.chits.findSchedule(chitId, monthNumber);
     if (!schedRow) throw notFound(`Schedule month ${monthNumber} not found.`);
 
-    const duplicate = this.repos.payments.findOpenBySlotAndMonth(memberSlotId, monthNumber);
-    if (duplicate) {
-      throw conflict(`Month ${monthNumber} is already paid under Receipt ${duplicate.receiptNumber}.`);
-    }
-
     const expectedAmount = getMemberPayableForMonth(
       chit.chitType,
       {
@@ -738,7 +738,17 @@ export class LedgerService {
       },
       slot.prizedMonth
     );
-    const amountPaid = requirePositiveInt(payload.amountPaid ?? expectedAmount, 'Amount');
+    // Partial payments: several POSTED receipts may cover one month while their
+    // sum stays within the payable amount; the month closes once it is fully paid.
+    const paidSoFar = this.repos.payments.sumPostedBySlotAndMonth(memberSlotId, monthNumber);
+    const outstanding = expectedAmount - paidSoFar;
+    if (outstanding <= 0) {
+      throw conflict(`Month ${monthNumber} is already fully paid.`);
+    }
+    const amountPaid = requirePositiveInt(payload.amountPaid ?? outstanding, 'Amount');
+    if (amountPaid > outstanding) {
+      throw badRequest(`Amount exceeds the outstanding balance of ${outstanding} for Month ${monthNumber}.`);
+    }
     const paidDate = optionalDate(payload.paidDate, 'Payment date') ?? getTodayIST();
     const paymentMethod: PaymentMethod =
       payload.paymentMethod === undefined
@@ -1079,19 +1089,22 @@ export class LedgerService {
     let currentMonthCollected = 0;
     let currentMonthPaidCount = 0;
     for (const slot of visibleSlots) {
-      if (currentSched) {
-        currentMonthTarget += getMemberPayableForMonth(
-          chit.chitType,
-          {
-            monthNumber: chit.currentMonth,
-            nonPrizedInstallment: currentSched.nonPrizedInstallment,
-            prizedInstallment: currentSched.prizedInstallment,
-          },
-          slot.prizedMonth
-        );
-      }
-      if (paidBySlot.has(slot.id)) {
-        currentMonthCollected += paidBySlot.get(slot.id)!;
+      const expected = currentSched
+        ? getMemberPayableForMonth(
+            chit.chitType,
+            {
+              monthNumber: chit.currentMonth,
+              nonPrizedInstallment: currentSched.nonPrizedInstallment,
+              prizedInstallment: currentSched.prizedInstallment,
+            },
+            slot.prizedMonth
+          )
+        : 0;
+      const paidSum = paidBySlot.get(slot.id) ?? 0;
+      currentMonthTarget += expected;
+      currentMonthCollected += paidSum;
+      // A ticket counts as paid only once its POSTED receipts cover the month.
+      if (currentSched && paidSum >= expected) {
         currentMonthPaidCount += 1;
       }
     }
@@ -1105,23 +1118,25 @@ export class LedgerService {
           .listByChit(chit.id)
           .filter((p) => p.memberSlotId === slot.id && p.status === 'POSTED')
           .reduce((sum, p) => sum + p.amountPaid, 0);
+        const expected = currentSched
+          ? getMemberPayableForMonth(
+              chit.chitType,
+              {
+                monthNumber: chit.currentMonth,
+                nonPrizedInstallment: currentSched.nonPrizedInstallment,
+                prizedInstallment: currentSched.prizedInstallment,
+              },
+              slot.prizedMonth
+            )
+          : 0;
+        const paidSum = paidBySlot.get(slot.id) ?? 0;
         return {
           slotId: slot.id,
           ticketNumber: slot.ticketNumber,
           prizedMonth: slot.prizedMonth,
           prizedAmount: slot.prizedAmount,
-          currentMonthDue: currentSched
-            ? getMemberPayableForMonth(
-                chit.chitType,
-                {
-                  monthNumber: chit.currentMonth,
-                  nonPrizedInstallment: currentSched.nonPrizedInstallment,
-                  prizedInstallment: currentSched.prizedInstallment,
-                },
-                slot.prizedMonth
-              )
-            : 0,
-          currentMonthPaid: paidBySlot.has(slot.id),
+          currentMonthDue: currentSched ? Math.max(0, expected - paidSum) : 0,
+          currentMonthPaid: currentSched !== undefined && paidSum >= expected,
           totalPaidSoFar: total,
         };
       });

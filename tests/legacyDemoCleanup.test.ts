@@ -157,7 +157,13 @@ test('SQLite database drops legacy demo data once and keeps real entries', async
     assert.deepEqual(ids('chit_schedules'), [2]);
     const sched = db.prepare('SELECT winner_member_slot_id AS w, is_auction_completed AS c FROM chit_schedules').get() as { w: number | null; c: number };
     assert.deepEqual({ ...sched }, { w: null, c: 0 });
-    assert.equal((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 2);
+    assert.equal((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 3);
+
+    // v3 migration swapped the one-payment-per-month unique index for a plain
+    // lookup index (partial payments are summed, not deduplicated).
+    const idx = (db.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'payments'`).all() as Array<{ name: string }>).map((r) => r.name);
+    assert.equal(idx.includes('payments_open_month_idx'), false);
+    assert.equal(idx.includes('payments_slot_month_idx'), true);
 
     // Migration hashed the kept plaintext PINs and dropped the plaintext column.
     const userCols = (db.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>).map((c) => c.name);

@@ -29,18 +29,23 @@ export const PassbookTable: React.FC<PassbookTableProps> = ({
   onOpenReceipt,
   onQuickRecordPayment,
 }) => {
-  // Map payments for the selected slot by monthNumber
-  const slotPaymentsByMonth = new Map<number, PaymentRecord>();
+  // Map POSTED payments for the selected slot by monthNumber — a month can hold
+  // several receipts when the member paid in parts (voided rows don't count).
+  const slotPaymentsByMonth = new Map<number, PaymentRecord[]>();
   if (selectedSlot) {
     for (const p of group.payments) {
-      if (p.memberSlotId === selectedSlot.id) {
-        slotPaymentsByMonth.set(p.monthNumber, p);
-      }
+      if (p.memberSlotId !== selectedSlot.id) continue;
+      if ((p.status ?? 'POSTED') !== 'POSTED') continue;
+      const list = slotPaymentsByMonth.get(p.monthNumber) ?? [];
+      list.push(p);
+      slotPaymentsByMonth.set(p.monthNumber, list);
     }
   }
 
   const totalPaidBySlot = selectedSlot
-    ? Array.from(slotPaymentsByMonth.values()).reduce((acc, p) => acc + p.amountPaid, 0)
+    ? Array.from(slotPaymentsByMonth.values())
+        .flat()
+        .reduce((acc, p) => acc + p.amountPaid, 0)
     : 0;
 
   const totalScheduledNonPrized = group.schedule.reduce(
@@ -199,9 +204,10 @@ export const PassbookTable: React.FC<PassbookTableProps> = ({
               {group.schedule.map((row) => {
                 const isCurrentMonth = row.monthNumber === group.currentMonth;
                 const isBonusValue = row.chitValue > group.faceValue;
-                const payment = selectedSlot
-                  ? slotPaymentsByMonth.get(row.monthNumber)
-                  : undefined;
+                const monthPayments = selectedSlot
+                  ? (slotPaymentsByMonth.get(row.monthNumber) ?? [])
+                  : [];
+                const monthPaidSum = monthPayments.reduce((s, p) => s + p.amountPaid, 0);
 
                 const isPrizedForThisRow =
                   selectedSlot !== null &&
@@ -214,6 +220,12 @@ export const PassbookTable: React.FC<PassbookTableProps> = ({
                 const memberExpected = selectedSlot
                   ? getMemberPayableForMonth(group.chitType, row, selectedSlot.prizedMonth)
                   : row.nonPrizedInstallment;
+
+                const isFullyPaid =
+                  selectedSlot !== null && monthPayments.length > 0 && monthPaidSum >= memberExpected;
+                const isPartial =
+                  selectedSlot !== null && monthPayments.length > 0 && !isFullyPaid;
+                const monthOutstanding = Math.max(0, memberExpected - monthPaidSum);
 
                 return (
                   <tr
@@ -323,9 +335,22 @@ export const PassbookTable: React.FC<PassbookTableProps> = ({
 
                         {/* Paid Date */}
                         <td className="border-r border-[#0B3B2E]/15 px-3.5 py-2.5 text-center text-xs tabular-nums">
-                          {payment ? (
+                          {isFullyPaid ? (
                             <span className="font-semibold text-emerald-800">
-                              {formatShortDate(payment.paidDate)}
+                              {formatShortDate(monthPayments[monthPayments.length - 1].paidDate)}
+                              {monthPayments.length > 1 && (
+                                <span className="block text-[10px] font-normal text-[#55655E]">
+                                  {monthPayments.length} receipts
+                                </span>
+                              )}
+                            </span>
+                          ) : isPartial ? (
+                            <span className="inline-flex flex-col items-center gap-0.5">
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 font-bold text-amber-900 tabular-nums">
+                                {formatPassbookAmount(monthPaidSum)} /{' '}
+                                {formatPassbookAmount(memberExpected)}
+                              </span>
+                              <span className="text-[10px] font-semibold text-amber-800">Partial</span>
                             </span>
                           ) : row.monthNumber <= group.currentMonth ? (
                             <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-900">
@@ -339,25 +364,58 @@ export const PassbookTable: React.FC<PassbookTableProps> = ({
 
                         {/* Signature / Action */}
                         <td className="px-3.5 py-2.5 text-center">
-                          {payment ? (
-                            <button
-                              onClick={() => onOpenReceipt(payment)}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-800/20 bg-emerald-50/90 px-2.5 py-1 text-xs font-semibold text-emerald-950 transition hover:bg-emerald-100"
-                              title="View Signed Official Receipt"
-                            >
-                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-700" />
-                              <span className="signature-stamp">{payment.signedByName.split(' ')[0]}</span>
-                              <FileCheck2 className="h-3 w-3 opacity-65" />
-                            </button>
-                          ) : row.monthNumber <= group.currentMonth && onQuickRecordPayment ? (
-                            <button
-                              onClick={() =>
-                                onQuickRecordPayment(selectedSlot, row.monthNumber, memberExpected)
-                              }
-                              className="no-print rounded-lg bg-[#0B3B2E] px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-[#135341]"
-                            >
-                              {isOrganizer ? 'Sign & Collect' : 'Pay Installment'}
-                            </button>
+                          {isFullyPaid ? (
+                            <div className="flex flex-wrap items-center justify-center gap-1">
+                              {monthPayments.map((p) => (
+                                <button
+                                  key={p.id}
+                                  onClick={() => onOpenReceipt(p)}
+                                  className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-800/20 bg-emerald-50/90 px-2.5 py-1 text-xs font-semibold text-emerald-950 transition hover:bg-emerald-100"
+                                  title="View Signed Official Receipt"
+                                >
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-700" />
+                                  <span className="signature-stamp">
+                                    {p.signedByName.split(' ')[0]}
+                                  </span>
+                                  <FileCheck2 className="h-3 w-3 opacity-65" />
+                                </button>
+                              ))}
+                            </div>
+                          ) : row.monthNumber <= group.currentMonth ? (
+                            <div className="flex flex-wrap items-center justify-center gap-1">
+                              {isPartial &&
+                                monthPayments.map((p) => (
+                                  <button
+                                    key={p.id}
+                                    onClick={() => onOpenReceipt(p)}
+                                    className="inline-flex items-center gap-1 rounded-lg border border-amber-700/25 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-950 transition hover:bg-amber-100"
+                                    title="View partial payment receipt"
+                                  >
+                                    <FileCheck2 className="h-3 w-3 opacity-65" />
+                                    {formatPassbookAmount(p.amountPaid)}
+                                  </button>
+                                ))}
+                              {onQuickRecordPayment && (
+                                <button
+                                  onClick={() =>
+                                    onQuickRecordPayment(
+                                      selectedSlot,
+                                      row.monthNumber,
+                                      monthOutstanding
+                                    )
+                                  }
+                                  className="no-print rounded-lg bg-[#0B3B2E] px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-[#135341]"
+                                >
+                                  {isOrganizer
+                                    ? isPartial
+                                      ? 'Collect Balance'
+                                      : 'Sign & Collect'
+                                    : isPartial
+                                      ? 'Pay Balance'
+                                      : 'Pay Installment'}
+                                </button>
+                              )}
+                            </div>
                           ) : (
                             <span className="text-xs text-[#55655E]/40">—</span>
                           )}
