@@ -8,13 +8,12 @@ import {
   LayoutDashboard,
   LogOut,
   Upload,
-  Users,
   Wifi,
   WifiOff,
   X,
 } from 'lucide-react';
 import { User } from '../types';
-import { DemoAccount, StorageBackendMode, api } from '../api/client';
+import { StorageBackendMode, api } from '../api/client';
 
 export type NavTab = 'overview' | 'groups' | 'calculator' | 'dues';
 
@@ -28,7 +27,6 @@ interface LayoutProps {
   activeTab: NavTab;
   dueBadgeCount: number;
   onSelectTab: (tab: NavTab) => void;
-  onSwitchUser: (user: User) => void;
   onLogout: () => void;
   onDataImported?: () => void;
   children: React.ReactNode;
@@ -39,7 +37,6 @@ export const Layout: React.FC<LayoutProps> = ({
   activeTab,
   dueBadgeCount,
   onSelectTab,
-  onSwitchUser,
   onLogout,
   onDataImported,
   children,
@@ -49,7 +46,6 @@ export const Layout: React.FC<LayoutProps> = ({
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showInstallTip, setShowInstallTip] = useState(false);
   const [showBackupModal, setShowBackupModal] = useState(false);
-  const [demoAccounts, setDemoAccounts] = useState<DemoAccount[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -65,10 +61,7 @@ export const Layout: React.FC<LayoutProps> = ({
     window.addEventListener('beforeinstallprompt', onBeforeInstall);
 
     api.getStorageMode().then(setBackendMode);
-    api
-      .getDemoAccounts()
-      .then(({ accounts }) => setDemoAccounts(accounts))
-      .catch(() => {});
+
 
     return () => {
       window.removeEventListener('online', onOnline);
@@ -84,15 +77,6 @@ export const Layout: React.FC<LayoutProps> = ({
       setDeferredPrompt(null);
     } else {
       setShowInstallTip(true);
-    }
-  };
-
-  const handleQuickRoleSwitch = async (phone: string) => {
-    try {
-      const { user: switched } = await api.login(phone, '1234');
-      onSwitchUser(switched);
-    } catch {
-      // Ignore
     }
   };
 
@@ -196,13 +180,13 @@ export const Layout: React.FC<LayoutProps> = ({
             Install Rare Mint App
           </button>
 
-          <button
+          {backendMode === 'static' && <button
             onClick={() => setShowBackupModal(true)}
             className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/8 px-3 py-2 text-xs font-semibold text-white/90 transition hover:bg-white/15"
           >
             <DatabaseBackup className="h-3.5 w-3.5" />
             Export / Restore Ledger
-          </button>
+          </button>}
 
           <div className="rounded-xl bg-white/8 p-3">
             <p className="text-xs font-bold text-white">{user.name}</p>
@@ -257,44 +241,15 @@ export const Layout: React.FC<LayoutProps> = ({
 
             {/* Right Controls: Quick Role Switcher + Mobile Actions */}
             <div className="flex items-center gap-2">
-              {demoAccounts.length > 0 && (
-                <div className="flex items-center gap-1.5 rounded-xl border border-[#0B3B2E]/15 bg-white px-2.5 py-1">
-                  <Users className="h-3.5 w-3.5 text-[#0B3B2E]" />
-                  <span className="hidden sm:inline text-[11px] font-semibold text-[#55655E]">
-                    View As:
-                  </span>
-                  <select
-                    value={user.phone}
-                    onChange={(e) => handleQuickRoleSwitch(e.target.value)}
-                    aria-label="Quick switch demo account"
-                    className="bg-transparent text-xs font-bold text-[#0B3B2E] focus:outline-none"
-                  >
-                    {!demoAccounts.some((d) => d.phone === user.phone) && (
-                      <option value={user.phone}>
-                        {user.name} ({user.role})
-                      </option>
-                    )}
-                    {demoAccounts.map((acc) => (
-                      <option key={acc.id} value={acc.phone}>
-                        {acc.name} —{' '}
-                        {acc.role === 'organizer'
-                          ? 'Organizer'
-                          : acc.phone === '9848033333'
-                            ? 'Prized Member'
-                            : 'Non-Prized Member'}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
 
-              <button
+
+              {backendMode === 'static' && <button
                 onClick={() => setShowBackupModal(true)}
                 className="lg:hidden rounded-lg border border-[#0B3B2E]/20 bg-white p-1.5 text-[#0B3B2E]"
                 title="Backup / Restore JSON"
               >
                 <DatabaseBackup className="h-4 w-4" />
-              </button>
+              </button>}
 
               <button
                 onClick={handleInstallClick}
@@ -428,16 +383,7 @@ export const Layout: React.FC<LayoutProps> = ({
                 Restore Ledger from JSON File
               </button>
 
-              <button
-                onClick={() => {
-                  api.resetToDefaultSeed();
-                  setShowBackupModal(false);
-                  onDataImported?.();
-                }}
-                className="w-full rounded-xl py-2 text-xs font-semibold text-[#55655E] hover:text-red-700"
-              >
-                Reset Local Demo Data to Defaults
-              </button>
+
             </div>
           </div>
         </div>

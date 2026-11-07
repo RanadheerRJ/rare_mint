@@ -7,11 +7,9 @@ import {
   TrendingDown,
   TrendingUp,
 } from 'lucide-react';
-import { ChitGroupDetail, ChitGroupSummary, ChitType } from '../types';
+import { ChitGroupDetail, ChitGroupSummary } from '../types';
 import { api } from '../api/client';
 import {
-  CHIT_PRESETS,
-  addMonthsToDate,
   analyzeLiftMonths,
 } from '../utils/chitFinance';
 import { formatPassbookAmount, formatShortDate } from '../utils/format';
@@ -32,11 +30,15 @@ export const LiftCalculator: React.FC<LiftCalculatorProps> = ({
       ? `group:${lockedGroup.id}`
       : groups.length > 0
         ? `group:${groups[0].id}`
-        : 'preset:classic-5l-16m'
+        : ''
   );
   const [loadedGroup, setLoadedGroup] = useState<ChitGroupDetail | null>(lockedGroup);
   const [selectedMonth, setSelectedMonth] = useState<number>(6);
   const [externalRatePct, setExternalRatePct] = useState<number>(12);
+
+  useEffect(() => {
+    if (!lockedGroup && !selectedSource && groups.length) setSelectedSource(`group:${groups[0].id}`);
+  }, [groups, lockedGroup, selectedSource]);
 
   useEffect(() => {
     if (lockedGroup) {
@@ -57,8 +59,7 @@ export const LiftCalculator: React.FC<LiftCalculatorProps> = ({
           );
         })
         .catch(() => {
-          // Fallback to preset if offline without detail cache
-          setSelectedSource('preset:classic-5l-16m');
+          setLoadedGroup(null);
         });
     } else {
       setLoadedGroup(null);
@@ -83,25 +84,12 @@ export const LiftCalculator: React.FC<LiftCalculatorProps> = ({
       };
     }
 
-    const presetId = selectedSource.replace('preset:', '');
-    const preset = CHIT_PRESETS.find((p) => p.id === presetId) || CHIT_PRESETS[0];
-    return {
-      title: preset.label,
-      chitType: preset.chitType as ChitType,
-      faceValue: preset.faceValue,
-      schedule: preset.schedule.map((r) => ({
-        monthNumber: r.monthNumber,
-        chitDate: addMonthsToDate('2026-06-10', r.monthNumber - 1, 10),
-        nonPrizedInstallment: r.nonPrizedInstallment,
-        chitValue: r.chitValue,
-        prizedInstallment: r.prizedInstallment,
-      })),
-    };
+    return null;
   }, [lockedGroup, selectedSource, loadedGroup]);
 
   const analysisRows = useMemo(
     () =>
-      analyzeLiftMonths(activeConfig.chitType, activeConfig.schedule, externalRatePct),
+      activeConfig ? analyzeLiftMonths(activeConfig.chitType, activeConfig.schedule, externalRatePct) : [],
     [activeConfig, externalRatePct]
   );
 
@@ -116,7 +104,11 @@ export const LiftCalculator: React.FC<LiftCalculatorProps> = ({
     ...analysisRows.map((r) => Math.abs(r.netGainOrCost))
   );
 
-  if (!currentRow) return null;
+  if (!currentRow || !activeConfig) return (
+    <div className="rounded-2xl border border-[#0B3B2E]/15 bg-white p-6 text-sm text-[#55655E]">
+      {groups.length === 0 && !lockedGroup ? 'No chits to analyze yet. Create or join a chit first.' : 'Loading chit analysis…'}
+    </div>
+  );
 
   return (
     <div className="space-y-5">
@@ -139,7 +131,7 @@ export const LiftCalculator: React.FC<LiftCalculatorProps> = ({
           {!lockedGroup && (
             <div className="w-full sm:w-auto">
               <label className="block text-[11px] font-bold tracking-wider text-[#55655E] uppercase">
-                Analyze Chit / Template
+                Analyze Chit
               </label>
               <select
                 value={selectedSource}
@@ -158,13 +150,6 @@ export const LiftCalculator: React.FC<LiftCalculatorProps> = ({
                     ))}
                   </optgroup>
                 )}
-                <optgroup label="Standard Passbook & Auction Templates">
-                  {CHIT_PRESETS.map((p) => (
-                    <option key={p.id} value={`preset:${p.id}`}>
-                      {p.label}
-                    </option>
-                  ))}
-                </optgroup>
               </select>
             </div>
           )}

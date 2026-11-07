@@ -3,13 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Rare Mint — Chit Fund Finance & Digital Passbook PWA for Organizers and Subscribers",
+  "description": "Rare Mint \u2014 Chit Fund Finance & Digital Passbook PWA for Organizers and Subscribers",
   "scripts": {
     "dev": "NODE_NO_WARNINGS=1 tsx server/index.ts",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "start": "NODE_ENV=production NODE_NO_WARNINGS=1 tsx server/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",

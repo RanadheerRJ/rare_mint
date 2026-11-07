@@ -19,13 +19,9 @@ export const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(() => {
     try {
       const saved = localStorage.getItem(USER_STORAGE_KEY);
-      if (saved) return JSON.parse(saved) as User;
-      if (localStorage.getItem(EXPLICIT_SIGNOUT_KEY) === '1') return null;
-      const defaultOrg = api.getDefaultOrganizer();
-      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(defaultOrg));
-      return defaultOrg;
+      return saved ? JSON.parse(saved) as User : null;
     } catch {
-      return api.getDefaultOrganizer();
+      return null;
     }
   });
 
@@ -46,6 +42,9 @@ export const App: React.FC = () => {
   const handleSetUser = (nextUser: User | null) => {
     setUser(nextUser);
     setSelectedGroupId(null);
+    setGroups([]);
+    setDues([]);
+    setReceipts([]);
     if (nextUser) {
       localStorage.removeItem(EXPLICIT_SIGNOUT_KEY);
       localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(nextUser));
@@ -100,7 +99,6 @@ export const App: React.FC = () => {
         activeTab={activeTab}
         dueBadgeCount={dues.length}
         onSelectTab={handleTabSelect}
-        onSwitchUser={handleSetUser}
         onLogout={() => handleSetUser(null)}
         onDataImported={refreshData}
       >

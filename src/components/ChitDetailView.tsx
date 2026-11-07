@@ -47,8 +47,8 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
   onOpenReceipt,
   onDataChanged,
 }) => {
-  const isOrganizer = currentUser.role === 'organizer';
   const [group, setGroup] = useState<ChitGroupDetail | null>(null);
+  const isOrganizer = currentUser.role === 'organizer' && group?.organizerId === currentUser.id;
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<DetailTab>('passbook');
   const [selectedSlotId, setSelectedSlotId] = useState<number | null>(null);
@@ -72,6 +72,8 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
   const [selectedExistingUserId, setSelectedExistingUserId] = useState<number>(0);
   const [newMemberName, setNewMemberName] = useState('');
   const [newMemberPhone, setNewMemberPhone] = useState('');
+  const [newMemberPin, setNewMemberPin] = useState('');
+  const [enrollBusy, setEnrollBusy] = useState(false);
   const [enrollError, setEnrollError] = useState<string | null>(null);
 
   // Lift / Auction form state
@@ -90,7 +92,7 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
       setCollectionMonth(detail.currentMonth);
       setLiftMonth(detail.currentMonth);
 
-      if (!isOrganizer) {
+      if (currentUser.role !== 'organizer' || detail.organizerId !== currentUser.id) {
         const myFirstSlot = detail.slots.find((s) => s.userId === currentUser.id);
         if (myFirstSlot) setSelectedSlotId(myFirstSlot.id);
       } else {
@@ -105,7 +107,7 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [groupId, currentUser.id, isOrganizer]);
+  }, [groupId, currentUser.id, currentUser.role]);
 
   useEffect(() => {
     loadDetail();
@@ -123,7 +125,7 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
     try {
       const { members } = await api.getMembers();
       setExistingMembers(members);
-      if (members.length > 0) setSelectedExistingUserId(members[0].id);
+      setSelectedExistingUserId(members[0]?.id ?? 0);
     } catch {
       // Ignore if offline
     }
@@ -156,11 +158,14 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
 
   const handleEnrollSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!group) return;
+    if (!group || !isOrganizer || enrollBusy) return;
     setEnrollError(null);
+    setEnrollBusy(true);
     try {
       await api.enrollSlot(group.id, {
         ticketNumber: enrollTicket,
+        organizerId: currentUser.id,
+        newMemberPin: enrollMode === 'new' ? newMemberPin : undefined,
         userId: enrollMode === 'existing' ? selectedExistingUserId : undefined,
         newMemberName: enrollMode === 'new' ? newMemberName : undefined,
         newMemberPhone: enrollMode === 'new' ? newMemberPhone : undefined,
@@ -168,10 +173,13 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
       setShowEnrollModal(false);
       setNewMemberName('');
       setNewMemberPhone('');
+      setNewMemberPin('');
       await loadDetail();
       onDataChanged();
     } catch (err) {
       setEnrollError(err instanceof Error ? err.message : 'Enrollment failed');
+    } finally {
+      setEnrollBusy(false);
     }
   };
 
@@ -254,6 +262,11 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
           All Chit Groups
         </button>
 
+        {isOrganizer && openTicketNumbers.length > 0 && (
+          <button onClick={() => openEnrollDrawer(openTicketNumbers[0])} className="inline-flex items-center gap-2 rounded-xl bg-[#0B3B2E] px-4 py-2 text-xs font-bold text-white hover:bg-[#135341]">
+            <UserPlus className="h-4 w-4" /> Add Member
+          </button>
+        )}
         {isOrganizer && (
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-[#55655E]">Active Cycle:</span>
@@ -351,11 +364,14 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
                 className="inline-flex items-center gap-1.5 rounded-xl bg-[#0B3B2E] px-4 py-2 text-xs font-bold text-white hover:bg-[#135341]"
               >
                 <UserPlus className="h-4 w-4" />
-                Enroll Member ({openTicketNumbers.length} Open Slots)
+                Add Member ({openTicketNumbers.length} Open Slots)
               </button>
             )}
           </div>
 
+          {group.slots.length === 0 && (
+            <p className="rounded-xl border border-[#0B3B2E]/15 bg-white p-5 text-sm text-[#55655E]">No members enrolled yet. Use Add Member to assign the first ticket.</p>
+          )}
           <div className="overflow-hidden rounded-2xl border border-[#0B3B2E]/15 bg-white">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[680px] text-left text-sm">
@@ -852,12 +868,20 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
                     className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3.5 py-2 text-sm tabular-nums"
                   />
                 </div>
+                <div>
+                  <label className="block text-xs font-semibold text-[#55655E]">Member's 4-digit sign-in PIN</label>
+                  <input type="password" required inputMode="numeric" pattern="[0-9]{4}" maxLength={4}
+                    value={newMemberPin} onChange={(e) => setNewMemberPin(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3.5 py-2 text-sm" />
+                  <p className="mt-1 text-xs text-[#55655E]">Share this PIN privately with the member.</p>
+                </div>
               </>
             ) : (
               <div>
                 <label className="block text-xs font-semibold text-[#55655E]">
                   Select Member
                 </label>
+                {existingMembers.length === 0 && <p className="mt-1 text-xs text-[#55655E]">No existing members. Add a new subscriber instead.</p>}
                 <select
                   value={selectedExistingUserId}
                   onChange={(e) => setSelectedExistingUserId(Number(e.target.value))}
@@ -882,7 +906,8 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
               </button>
               <button
                 type="submit"
-                className="rounded-xl bg-[#0B3B2E] px-5 py-2 text-sm font-bold text-white hover:bg-[#135341]"
+                disabled={enrollBusy || (enrollMode === 'existing' && existingMembers.length === 0)}
+                className="rounded-xl bg-[#0B3B2E] px-5 py-2 text-sm font-bold text-white hover:bg-[#135341] disabled:opacity-50"
               >
                 Assign Ticket #{enrollTicket}
               </button>
