@@ -636,3 +636,96 @@ test('chit create derives a default schedule when the UI sends an empty schedule
   assert.equal(patched.status, 400);
   assert.match(String(patched.body?.error), /missing month 1/);
 });
+
+test('partial payments: part payment, top-up, overpay rejection and full-payment lock', async () => {
+  const devToken = (await login(DEV_PHONE, DEV_PIN)).body.token;
+  await inviteOwner(devToken, 'Owner Partial', '9333333377', '7777');
+  const token: string = (await login('9333333377', '7777')).body.token;
+
+  const chit = await createChit(token, 'PARTIAL-1');
+  const slot = await enrollNewMember(token, chit.id, 1, 'Member Part', '9555555501', '2468');
+
+  // 1) A partial payment (4,000 of the 10,000 payable) is accepted…
+  const p1 = await call(`/chits/${chit.id}/payments`, {
+    token,
+    body: { memberSlotId: slot.id, monthNumber: 1, amountPaid: 4000 },
+  });
+  assert.equal(p1.status, 201, p1.body?.error ?? 'partial payment should be accepted');
+  assert.equal(p1.body.payment.amountPaid, 4000);
+
+  // …and dues keep showing the remaining balance plus what was paid.
+  const dues1 = await call('/dues', { token });
+  const due1 = dues1.body.dues.find(
+    (d: { monthNumber: number; memberSlotId: number }) =>
+      d.monthNumber === 1 && d.memberSlotId === slot.id
+  );
+  assert.ok(due1, 'month 1 must stay due after a partial payment');
+  assert.equal(due1.amountDue, 6000);
+  assert.equal(due1.amountPaid, 4000);
+
+  // Member summary reflects the remaining balance, not the full installment.
+  const memberToken = (await login('9555555501', '2468')).body.token;
+  let detail = await call(`/chits/${chit.id}`, { token: memberToken });
+  assert.equal(detail.body.group.mySlots[0].currentMonthDue, 6000);
+  assert.equal(detail.body.group.mySlots[0].currentMonthPaid, false);
+  assert.equal(detail.body.group.mySlots[0].totalPaidSoFar, 4000);
+
+  // 2) Collecting the balance marks the month fully paid.
+  const p2 = await call(`/chits/${chit.id}/payments`, {
+    token,
+    body: { memberSlotId: slot.id, monthNumber: 1, amountPaid: 6000 },
+  });
+  assert.equal(p2.status, 201, p2.body?.error ?? 'top-up should be accepted');
+
+  const dues2 = await call('/dues', { token });
+  assert.equal(
+    dues2.body.dues.some(
+      (d: { monthNumber: number; memberSlotId: number }) =>
+        d.monthNumber === 1 && d.memberSlotId === slot.id
+    ),
+    false,
+    'a fully paid month must drop out of dues'
+  );
+
+  detail = await call(`/chits/${chit.id}`, { token: memberToken });
+  assert.equal(detail.body.group.mySlots[0].currentMonthDue, 0);
+  assert.equal(detail.body.group.mySlots[0].currentMonthPaid, true);
+  assert.equal(detail.body.group.mySlots[0].totalPaidSoFar, 10000);
+
+  // The organizer summary counts the ticket as paid only once fully covered.
+  const list = await call('/chits', { token });
+  assert.equal(list.body.groups[0].currentMonthPaidCount, 1);
+
+  // 3) A third payment on a fully paid month is rejected.
+  const p3 = await call(`/chits/${chit.id}/payments`, {
+    token,
+    body: { memberSlotId: slot.id, monthNumber: 1, amountPaid: 1 },
+  });
+  assert.equal(p3.status, 409);
+  assert.match(String(p3.body?.error), /already fully paid/);
+
+  // 4) An amount above the outstanding balance is rejected.
+  const over = await call(`/chits/${chit.id}/payments`, {
+    token,
+    body: { memberSlotId: slot.id, monthNumber: 2, amountPaid: 10001 },
+  });
+  assert.equal(over.status, 400);
+  assert.match(String(over.body?.error), /exceeds the outstanding balance/);
+
+  // 5) Voiding the top-up reopens the month as partially paid.
+  const voidRes = await call(`/chits/${chit.id}/payments/${p2.body.payment.id}`, {
+    method: 'DELETE',
+    token,
+    body: { reason: 'top-up reversed' },
+  });
+  assert.equal(voidRes.status, 200);
+
+  const dues3 = await call('/dues', { token });
+  const due3 = dues3.body.dues.find(
+    (d: { monthNumber: number; memberSlotId: number }) =>
+      d.monthNumber === 1 && d.memberSlotId === slot.id
+  );
+  assert.ok(due3, 'voiding the top-up must reopen the month');
+  assert.equal(due3.amountDue, 6000);
+  assert.equal(due3.amountPaid, 4000);
+});

@@ -126,13 +126,14 @@ export function createSqlitePaymentsRepository(db: Db): PaymentsRepository {
       return toNumber(row.c);
     },
 
-    findOpenBySlotAndMonth(memberSlotId, monthNumber) {
+    sumPostedBySlotAndMonth(memberSlotId, monthNumber) {
       const row = db
         .prepare(
-          `${PAYMENT_SELECT} WHERE p.member_slot_id = ? AND p.month_number = ? AND p.status = 'POSTED'`
+          `SELECT COALESCE(SUM(amount_paid), 0) AS s FROM payments
+           WHERE member_slot_id = ? AND month_number = ? AND status = 'POSTED'`
         )
-        .get(memberSlotId, monthNumber) as Row | undefined;
-      return row ? mapPayment(row) : null;
+        .get(memberSlotId, monthNumber) as Row;
+      return toNumber(row.s);
     },
 
     nextReceiptSequence() {

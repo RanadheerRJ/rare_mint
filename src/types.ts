@@ -139,7 +139,10 @@ export interface DueItem {
   memberName: string;
   memberPhone: string;
   isPrizedSubscriber: boolean;
+  /** Remaining balance for the month (full payable minus posted partial payments). */
   amountDue: number;
+  /** Sum of posted partial payments for the month; omitted (treated as 0) in static mode. */
+  amountPaid?: number;
   organizerName: string;
 }
 

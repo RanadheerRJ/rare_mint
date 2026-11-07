@@ -151,6 +151,7 @@ const DEMO_PURGED_USER_VERSION = 1;
 
 /** Schema version with hashed PINs, sessions, audit log and role/is_active columns. */
 const AUTH_SCHEMA_USER_VERSION = 2;
+const PAYMENTS_PARTIAL_USER_VERSION = 3;
 
 function readUserVersion(): number {
   return (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
@@ -351,8 +352,32 @@ export function migrateToAuthSchema(): void {
   }
 }
 
+/**
+ * v2 -> v3 migration: partial payments. The one-POSTED-payment-per-month rule
+ * (enforced by the partial unique index) is replaced by a sum rule in
+ * ledgerService, so the unique index becomes a plain lookup index. Idempotent:
+ * guarded by PRAGMA user_version and IF (NOT) EXISTS DDL.
+ */
+export function migrateToPartialPayments(): void {
+  if (readUserVersion() >= PAYMENTS_PARTIAL_USER_VERSION) return;
+  db.exec('BEGIN');
+  try {
+    db.exec('DROP INDEX IF EXISTS payments_open_month_idx');
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS payments_slot_month_idx
+        ON payments (member_slot_id, month_number);
+    `);
+    db.exec(`PRAGMA user_version = ${PAYMENTS_PARTIAL_USER_VERSION}`);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
 export function initDatabase(): void {
   createSchemaIfNotExists();
   purgeLegacyDemoDataOnce();
   migrateToAuthSchema();
+  migrateToPartialPayments();
 }

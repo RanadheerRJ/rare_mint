@@ -289,7 +289,8 @@ export interface PaymentsRepository {
   /** Counts every payment row (including voided ones) for the given chit. */
   countByChit(chitGroupId: number): number;
   countBySlot(memberSlotId: number): number;
-  findOpenBySlotAndMonth(memberSlotId: number, monthNumber: number): PaymentRow | null;
+  /** Sum of POSTED (non-void) payments for a slot and month. */
+  sumPostedBySlotAndMonth(memberSlotId: number, monthNumber: number): number;
   /** Increments and returns the global receipt sequence; call inside a transaction. */
   nextReceiptSequence(): number;
 }
