@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { LEGACY_DEMO_PHONES, isLegacyDemoUser } from '../src/utils/legacyDemo';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 if (!fs.existsSync(DATA_DIR)) {
@@ -103,4 +104,72 @@ export function initDatabase(): void {
     );
   `);
 
+  purgeLegacyDemoDataOnce();
+}
+
+/** Schema version from which the database is known to be free of legacy demo data. */
+const DEMO_PURGED_USER_VERSION = 1;
+
+/**
+ * Earlier builds seeded a demo organizer, 20 members, two chit groups and their
+ * payments into fresh databases. Remove those records once, keeping real data.
+ */
+export function purgeLegacyDemoDataOnce(): void {
+  const { user_version: version } = db.prepare('PRAGMA user_version').get() as { user_version: number };
+  if (version >= DEMO_PURGED_USER_VERSION) return;
+
+  const phones = [...LEGACY_DEMO_PHONES];
+  const candidates = db
+    .prepare(`SELECT id, phone, pin FROM users WHERE phone IN (${phones.map(() => '?').join(',')})`)
+    .all(...phones) as Array<{ id: number; phone: string; pin: string }>;
+  const demoUserIds = candidates.filter(isLegacyDemoUser).map((u) => u.id);
+
+  db.exec('BEGIN');
+  try {
+    if (demoUserIds.length > 0) {
+      db.exec('CREATE TEMP TABLE IF NOT EXISTS legacy_demo_users (id INTEGER PRIMARY KEY)');
+      db.exec('CREATE TEMP TABLE IF NOT EXISTS legacy_demo_groups (id INTEGER PRIMARY KEY)');
+      db.exec('CREATE TEMP TABLE IF NOT EXISTS legacy_demo_slots (id INTEGER PRIMARY KEY, user_id INTEGER)');
+      db.exec('DELETE FROM legacy_demo_users; DELETE FROM legacy_demo_groups; DELETE FROM legacy_demo_slots;');
+      const insertUser = db.prepare('INSERT INTO legacy_demo_users (id) VALUES (?)');
+      for (const id of demoUserIds) insertUser.run(id);
+
+      db.exec(`
+        INSERT INTO legacy_demo_groups (id)
+          SELECT id FROM chit_groups WHERE organizer_id IN (SELECT id FROM legacy_demo_users);
+        INSERT INTO legacy_demo_slots (id, user_id)
+          SELECT id, user_id FROM member_slots
+          WHERE chit_group_id IN (SELECT id FROM legacy_demo_groups)
+             OR user_id IN (SELECT id FROM legacy_demo_users);
+
+        DELETE FROM payments
+          WHERE chit_group_id IN (SELECT id FROM legacy_demo_groups)
+             OR member_slot_id IN (SELECT id FROM legacy_demo_slots);
+        UPDATE chit_schedules
+          SET bid_discount = NULL, dividend_per_member = NULL, foreman_commission = NULL,
+              is_auction_completed = 0, winner_member_slot_id = NULL,
+              payout_date = NULL, payout_reference = NULL
+          WHERE winner_member_slot_id IN (SELECT id FROM legacy_demo_slots);
+        DELETE FROM chit_schedules WHERE chit_group_id IN (SELECT id FROM legacy_demo_groups);
+        DELETE FROM member_slots WHERE id IN (SELECT id FROM legacy_demo_slots);
+        DELETE FROM chit_groups WHERE id IN (SELECT id FROM legacy_demo_groups);
+
+        -- Members that only existed inside removed demo groups.
+        DELETE FROM users
+          WHERE id IN (SELECT id FROM legacy_demo_users)
+             OR (role = 'member'
+                 AND id IN (SELECT user_id FROM legacy_demo_slots)
+                 AND id NOT IN (SELECT user_id FROM member_slots));
+
+        DROP TABLE legacy_demo_users;
+        DROP TABLE legacy_demo_groups;
+        DROP TABLE legacy_demo_slots;
+      `);
+    }
+    db.exec(`PRAGMA user_version = ${DEMO_PURGED_USER_VERSION}`);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
 }

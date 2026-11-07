@@ -11,13 +11,39 @@ import { LiftCalculator } from './components/LiftCalculator';
 import { DuesAndReceiptsView } from './components/DuesAndReceiptsView';
 import { CreateChitModal } from './components/CreateChitModal';
 import { ReceiptModal } from './components/ReceiptModal';
+import { LEGACY_DEMO_PHONES } from './utils/legacyDemo';
 
 const USER_STORAGE_KEY = 'rm_active_user_v1';
 const EXPLICIT_SIGNOUT_KEY = 'rm_signed_out_v1';
+const LEGACY_CLEANUP_KEY = 'rm_legacy_demo_cleanup_v1';
+const API_CACHE_PREFIX = 'rm_cache_v1:';
+
+/**
+ * One-time removal of client state left behind by early builds, which signed
+ * visitors in as a seeded demo organizer and cached demo API responses.
+ */
+function cleanupLegacyClientState(): void {
+  if (localStorage.getItem(LEGACY_CLEANUP_KEY) === '1') return;
+  try {
+    const saved = localStorage.getItem(USER_STORAGE_KEY);
+    const savedUser = saved ? (JSON.parse(saved) as Partial<User>) : null;
+    if (savedUser && LEGACY_DEMO_PHONES.has(String(savedUser.phone ?? ''))) {
+      localStorage.removeItem(USER_STORAGE_KEY);
+    }
+  } catch {
+    localStorage.removeItem(USER_STORAGE_KEY);
+  }
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const key = localStorage.key(i);
+    if (key?.startsWith(API_CACHE_PREFIX)) localStorage.removeItem(key);
+  }
+  localStorage.setItem(LEGACY_CLEANUP_KEY, '1');
+}
 
 export const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(() => {
     try {
+      cleanupLegacyClientState();
       const saved = localStorage.getItem(USER_STORAGE_KEY);
       return saved ? JSON.parse(saved) as User : null;
     } catch {
