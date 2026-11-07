@@ -294,7 +294,14 @@ export class LedgerService {
     const existing = this.repos.chits.findByCode(code);
     if (existing) throw conflict(`Chit code ${code} already exists. Please choose a unique code.`);
 
-    const schedule = this.parseScheduleInput(payload.schedule, {
+    // The create UI sends `schedule: []` for AUCTION chits (the month table is
+    // generated at auction-settle time); treat an empty list as "derive the
+    // standard schedule" here so chit creation does not fail with "Schedule is
+    // missing month 1". updateChit's schedule replacement keeps its strict
+    // row-per-month validation.
+    const scheduleInput =
+      Array.isArray(payload.schedule) && payload.schedule.length === 0 ? undefined : payload.schedule;
+    const schedule = this.parseScheduleInput(scheduleInput, {
       durationMonths,
       startDate,
       dueDayOfMonth,

@@ -573,3 +573,66 @@ test('PINs are hashed, never returned, and member PIN reset works for the owning
   assert.equal(String(auditRow.after_json).includes('1357'), false);
   assert.equal(String(auditRow.after_json).includes('***'), true);
 });
+
+test('chit create derives a default schedule when the UI sends an empty schedule list', async () => {
+  const devToken = (await login(DEV_PHONE, DEV_PIN)).body.token;
+  await inviteOwner(devToken, 'Owner Sched', '9333333355', '5555');
+  const token: string = (await login('9333333355', '5555')).body.token;
+
+  // The create form sends `schedule: []` for AUCTION chits (the month table is
+  // derived server-side), so creation must succeed (regression: it used to fail
+  // with "Schedule is missing month 1.").
+  const create = await call('/chits', {
+    token,
+    body: {
+      name: '₹10,00,000 — 25 Months Business Auction',
+      code: 'RM-10L-25M-38',
+      chitType: 'AUCTION',
+      faceValue: 1000000,
+      durationMonths: 25,
+      startDate: '2026-11-07',
+      dueDayOfMonth: 10,
+      baseInstallment: 40000,
+      foremanCommissionPct: 5,
+      maxBidPct: 35,
+      notes: '',
+      schedule: [],
+    },
+  });
+  assert.equal(create.status, 201, create.body?.error ?? 'create should succeed');
+
+  const detail = await call(`/chits/${create.body.group.id}`, { token });
+  assert.equal(detail.status, 200);
+  assert.equal(detail.body.group.schedule.length, 25);
+  assert.equal(detail.body.group.schedule[0].monthNumber, 1);
+  assert.equal(detail.body.group.schedule[0].nonPrizedInstallment, 40000);
+  assert.equal(detail.body.group.schedule[24].monthNumber, 25);
+
+  // A schedule that IS provided must still cover every month.
+  const partial = await call('/chits', {
+    token,
+    body: {
+      name: 'Partial Schedule',
+      chitType: 'FIXED_TABLE',
+      faceValue: 200000,
+      durationMonths: 2,
+      startDate: '2026-12-01',
+      dueDayOfMonth: 5,
+      baseInstallment: 100000,
+      schedule: [
+        { monthNumber: 1, nonPrizedInstallment: 100000, chitValue: 200000, prizedInstallment: 100000 },
+      ],
+    },
+  });
+  assert.equal(partial.status, 400);
+  assert.match(String(partial.body?.error), /missing month 2/);
+
+  // Schedule replacement via PATCH /chits/:id keeps strict row-per-month validation.
+  const patched = await call(`/chits/${create.body.group.id}`, {
+    method: 'PATCH',
+    token,
+    body: { schedule: [] },
+  });
+  assert.equal(patched.status, 400);
+  assert.match(String(patched.body?.error), /missing month 1/);
+});
