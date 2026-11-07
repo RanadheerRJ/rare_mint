@@ -120,7 +120,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose }) 
         </div>
 
         {/* Actions */}
-        <div className="no-print flex flex-wrap items-center gap-2 border-t border-[#0B3B2E]/10 bg-[#FAF8F4] px-6 py-4">
+        <div className="no-print flex flex-col gap-2 border-t border-[#0B3B2E]/10 bg-[#FAF8F4] px-6 py-4 sm:flex-row sm:items-center">
           <a
             href={waUrl}
             target="_blank"

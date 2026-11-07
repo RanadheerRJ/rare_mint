@@ -7,6 +7,7 @@ import {
   FileCheck2,
   LayoutDashboard,
   LogOut,
+  MoreHorizontal,
   Upload,
   Wifi,
   WifiOff,
@@ -47,7 +48,9 @@ export const Layout: React.FC<LayoutProps> = ({
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showInstallTip, setShowInstallTip] = useState(false);
   const [showBackupModal, setShowBackupModal] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const onOnline = () => setIsOnline(true);
@@ -63,13 +66,29 @@ export const Layout: React.FC<LayoutProps> = ({
 
     api.getStorageMode().then(setBackendMode);
 
-
     return () => {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
       window.removeEventListener('beforeinstallprompt', onBeforeInstall);
     };
   }, []);
+
+  // Close the mobile overflow menu on outside tap / Escape.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen]);
 
   const handleInstallClick = async () => {
     if (deferredPrompt) {
@@ -110,24 +129,43 @@ export const Layout: React.FC<LayoutProps> = ({
   const navItems: Array<{
     id: NavTab;
     label: string;
+    short: string;
     icon: typeof LayoutDashboard;
     badge?: number;
   }> = user.role === 'developer'
-    ? [{ id: 'overview', label: 'Platform Admin', icon: LayoutDashboard }]
+    ? [{ id: 'overview', label: 'Platform Admin', short: 'Admin', icon: LayoutDashboard }]
     : [
-        { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-        { id: 'groups', label: 'Passbooks', icon: BookOpen },
-        { id: 'calculator', label: 'Lift ROI', icon: Calculator },
+        { id: 'overview', label: 'Overview', short: 'Home', icon: LayoutDashboard },
+        { id: 'groups', label: 'Passbooks', short: 'Passbooks', icon: BookOpen },
+        { id: 'calculator', label: 'Lift ROI', short: 'Lift', icon: Calculator },
         {
           id: 'dues',
           label: 'Dues & Receipts',
+          short: 'Dues',
           icon: FileCheck2,
           badge: dueBadgeCount > 0 ? dueBadgeCount : undefined,
         },
       ];
 
+  const statusPill = (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
+        isOnline
+          ? 'bg-emerald-100 text-emerald-900'
+          : 'bg-amber-100 text-amber-900'
+      }`}
+    >
+      {isOnline ? <Wifi className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
+      {isOnline
+        ? backendMode === 'server'
+          ? 'Live Server DB Synced'
+          : 'PWA Local Ledger Active'
+        : 'Offline Passbook Mode'}
+    </span>
+  );
+
   return (
-    <div className="min-h-screen bg-[#FAF8F4] text-[#14201C] flex flex-col lg:flex-row">
+    <div className="rm-min-dvh bg-[#FAF8F4] text-[#14201C] flex flex-col lg:flex-row">
       {/* Desktop Left Sidebar */}
       <aside className="no-print hidden lg:flex lg:w-64 lg:flex-col lg:fixed lg:inset-y-0 bg-[#0B3B2E] text-white">
         <div className="flex items-center gap-3 px-6 py-5 border-b border-white/12">
@@ -183,13 +221,15 @@ export const Layout: React.FC<LayoutProps> = ({
             Install Rare Mint App
           </button>
 
-          {backendMode === 'static' && <button
-            onClick={() => setShowBackupModal(true)}
-            className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/8 px-3 py-2 text-xs font-semibold text-white/90 transition hover:bg-white/15"
-          >
-            <DatabaseBackup className="h-3.5 w-3.5" />
-            Export / Restore Ledger
-          </button>}
+          {backendMode === 'static' && (
+            <button
+              onClick={() => setShowBackupModal(true)}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/8 px-3 py-2 text-xs font-semibold text-white/90 transition hover:bg-white/15"
+            >
+              <DatabaseBackup className="h-3.5 w-3.5" />
+              Export / Restore Ledger
+            </button>
+          )}
 
           <HardRefreshButton variant="sidebar" />
 
@@ -215,15 +255,16 @@ export const Layout: React.FC<LayoutProps> = ({
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex-1 lg:pl-64 flex flex-col min-h-screen">
+      <div className="flex-1 lg:pl-64 flex flex-col rm-min-dvh">
         {/* Top Header */}
-        <header className="no-print sticky top-0 z-30 border-b border-[#0B3B2E]/12 bg-[#FAF8F4]/95 px-4 py-3 backdrop-blur-md sm:px-6">
+        <header className="no-print sticky top-0 z-30 border-b border-[#0B3B2E]/12 bg-[#FAF8F4]/95 px-4 py-2.5 backdrop-blur-md sm:px-6 rm-safe-top">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2">
+            {/* Mobile Brand */}
             <div className="flex items-center gap-2.5 lg:hidden">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#0B3B2E] text-sm font-bold text-[#F2CA6B]">
                 ₹
               </div>
-              <div>
+              <div className="leading-tight">
                 <p className="text-sm font-bold leading-none text-[#0B3B2E]">Rare Mint</p>
                 <p className="text-[10px] font-semibold text-[#55655E] capitalize">
                   {user.role} Portal
@@ -231,64 +272,97 @@ export const Layout: React.FC<LayoutProps> = ({
               </div>
             </div>
 
-            {/* Online/Offline & Storage Sync Pill */}
-            <div className="hidden lg:flex items-center gap-2">
-              {isOnline ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-900">
-                  <Wifi className="h-3.5 w-3.5" />
-                  {backendMode === 'server'
-                    ? 'Live Server DB Synced'
-                    : 'PWA Local Ledger Active'}
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900">
-                  <WifiOff className="h-3.5 w-3.5" />
-                  Offline Passbook Mode
-                </span>
-              )}
-            </div>
+            {/* Desktop Status Pill */}
+            <div className="hidden lg:flex lg:items-center lg:gap-2">{statusPill}</div>
 
-            {/* Right Controls: Quick Role Switcher + Mobile Actions */}
-            <div className="flex items-center gap-2">
+            {/* Right Controls */}
+            <div className="flex items-center justify-end gap-2">
+              {/* Mobile overflow menu */}
+              <div ref={menuRef} className="relative lg:hidden">
+                <button
+                  onClick={() => setMenuOpen((v) => !v)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#0B3B2E]/20 bg-white px-2.5 py-1.5 text-xs font-bold text-[#0B3B2E] transition hover:bg-[#FAF8F4]"
+                  aria-label="Account and app menu"
+                  aria-expanded={menuOpen}
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                  <span>Menu</span>
+                </button>
 
+                {menuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+                    <div className="absolute right-0 top-full z-50 mt-2 w-64 max-w-[82vw] overflow-hidden rounded-2xl border border-[#0B3B2E]/15 bg-white p-2 shadow-2xl">
+                      {/* Account / status row */}
+                      <div className="rounded-xl bg-[#FAF8F4] p-3">
+                        <p className="text-sm font-bold text-[#14201C]">{user.name}</p>
+                        <p className="text-[11px] text-[#55655E] capitalize">
+                          {user.role === 'organizer'
+                            ? 'Organizer / Foreman'
+                            : user.role === 'developer'
+                              ? 'Platform Developer'
+                              : 'Chit Subscriber'}{' '}
+                          · +91 {user.phone}
+                        </p>
+                        <div className="mt-2">{statusPill}</div>
+                      </div>
 
-              {backendMode === 'static' && <button
-                onClick={() => setShowBackupModal(true)}
-                className="lg:hidden rounded-lg border border-[#0B3B2E]/20 bg-white p-1.5 text-[#0B3B2E]"
-                title="Backup / Restore JSON"
-              >
-                <DatabaseBackup className="h-4 w-4" />
-              </button>}
+                      <div className="my-1 h-px bg-[#0B3B2E]/10" />
 
-              <HardRefreshButton variant="icon" />
+                      <HardRefreshButton variant="menu" />
 
-              <button
-                onClick={handleInstallClick}
-                className="lg:hidden rounded-lg border border-[#0B3B2E]/20 bg-white p-1.5 text-[#0B3B2E]"
-                title="Install PWA"
-              >
-                <Download className="h-4 w-4" />
-              </button>
+                      {backendMode === 'static' && (
+                        <button
+                          onClick={() => {
+                            setMenuOpen(false);
+                            setShowBackupModal(true);
+                          }}
+                          className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold text-[#14201C] transition hover:bg-[#FAF8F4]"
+                        >
+                          <DatabaseBackup className="h-4 w-4 text-[#0B3B2E]" />
+                          <span className="flex-1 text-left">Export / Restore Ledger</span>
+                        </button>
+                      )}
 
-              <button
-                onClick={onLogout}
-                className="lg:hidden rounded-lg border border-[#0B3B2E]/20 bg-white p-1.5 text-[#55655E]"
-                title="Sign Out"
-              >
-                <LogOut className="h-4 w-4" />
-              </button>
+                      <button
+                        onClick={() => {
+                          setMenuOpen(false);
+                          void handleInstallClick();
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold text-[#14201C] transition hover:bg-[#FAF8F4]"
+                      >
+                        <Download className="h-4 w-4 text-[#0B3B2E]" />
+                        <span className="flex-1 text-left">Install Rare Mint App</span>
+                      </button>
+
+                      <div className="my-1 h-px bg-[#0B3B2E]/10" />
+
+                      <button
+                        onClick={() => {
+                          setMenuOpen(false);
+                          onLogout();
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-50"
+                      >
+                        <LogOut className="h-4 w-4" />
+                        <span className="flex-1 text-left">Sign Out</span>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </header>
 
         {/* Main Workspace */}
-        <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-5 pb-24 sm:px-6 lg:pb-10">
+        <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-5 pb-[calc(6rem+env(safe-area-inset-bottom))] sm:px-6 lg:pb-10">
           {children}
         </main>
       </div>
 
       {/* Mobile Bottom Tab Bar */}
-      <nav className="no-print fixed right-0 bottom-0 left-0 z-30 flex items-center justify-around border-t border-[#0B3B2E]/15 bg-white/95 px-2 py-2 backdrop-blur-md lg:hidden">
+      <nav className="no-print fixed right-0 bottom-0 left-0 z-30 flex items-stretch justify-around border-t border-[#0B3B2E]/15 bg-white/95 backdrop-blur-md lg:hidden rm-safe-x rm-safe-bottom">
         {navItems.map((item) => {
           const Icon = item.icon;
           const active = activeTab === item.id;
@@ -296,14 +370,17 @@ export const Layout: React.FC<LayoutProps> = ({
             <button
               key={item.id}
               onClick={() => onSelectTab(item.id)}
-              className={`relative flex flex-col items-center gap-0.5 rounded-xl px-3 py-1 text-[11px] font-bold transition ${
+              className={`relative flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-bold transition ${
                 active ? 'text-[#0B3B2E]' : 'text-[#55655E]'
               }`}
             >
-              <Icon className={`h-5 w-5 ${active ? 'stroke-[2.5]' : ''}`} />
-              <span>{item.label}</span>
+              <Icon
+                className={`h-5 w-5 ${active ? 'stroke-[2.5]' : ''}`}
+                strokeWidth={active ? 2.5 : 2}
+              />
+              <span className="max-w-full truncate px-1">{item.short}</span>
               {item.badge !== undefined && (
-                <span className="absolute top-0.5 right-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#D4A437] px-1 text-[10px] font-bold text-[#14201C]">
+                <span className="absolute right-2 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#D4A437] px-1 text-[10px] font-bold text-[#14201C]">
                   {item.badge}
                 </span>
               )}
@@ -359,7 +436,8 @@ export const Layout: React.FC<LayoutProps> = ({
                   Ledger Backup & Portable Sync
                 </h3>
                 <p className="mt-0.5 text-xs text-[#55655E]">
-                  Export your complete chit groups, member tickets, and signed receipts as JSON or restore on any device.
+                  Export your complete chit groups, member tickets, and signed receipts as JSON or
+                  restore on any device.
                 </p>
               </div>
               <button
@@ -393,8 +471,6 @@ export const Layout: React.FC<LayoutProps> = ({
                 <Upload className="h-4 w-4" />
                 Restore Ledger from JSON File
               </button>
-
-
             </div>
           </div>
         </div>

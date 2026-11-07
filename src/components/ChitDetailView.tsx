@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Award,
@@ -10,6 +10,7 @@ import {
   Gavel,
   KeyRound,
   MessageCircle,
+  MoreHorizontal,
   Pencil,
   Plus,
   Trash2,
@@ -112,6 +113,8 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
   const [voidPayment, setVoidPayment] = useState<PaymentRecord | null>(null);
   const [confirmDeleteChit, setConfirmDeleteChit] = useState(false);
   const [confirmRemoveSlot, setConfirmRemoveSlot] = useState<MemberSlot | null>(null);
+  const [manageMenuOpen, setManageMenuOpen] = useState(false);
+  const manageMenuRef = useRef<HTMLDivElement | null>(null);
   const [manageBusy, setManageBusy] = useState(false);
   const [manageError, setManageError] = useState<string | null>(null);
 
@@ -143,6 +146,25 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
   useEffect(() => {
     loadDetail();
   }, [loadDetail]);
+
+  // Close the manage dropdown on outside tap / Escape.
+  useEffect(() => {
+    if (!manageMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (manageMenuRef.current && !manageMenuRef.current.contains(e.target as Node)) {
+        setManageMenuOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setManageMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [manageMenuOpen]);
 
   const selectedSlot = useMemo(
     () => group?.slots.find((s) => s.id === selectedSlotId) || null,
@@ -317,6 +339,54 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
     paymentsInMonth.set(p.memberSlotId, list);
   }
 
+  // Shared view-model for the collections member list — rendered as a table on
+  // desktop and as stacked cards on mobile so both stay in sync.
+  const slotRows = group.slots
+    .filter((s) => isOrganizer || s.userId === currentUser.id)
+    .map((slot) => {
+      const expected = getMemberPayableForMonth(
+        group.chitType,
+        activeSchedRow,
+        slot.prizedMonth
+      );
+      const paidRecs = paymentsInMonth.get(slot.id) ?? [];
+      const paidSum = paidRecs.reduce((s, p) => s + p.amountPaid, 0);
+      const outstanding = Math.max(0, expected - paidSum);
+      const isFullyPaid = paidRecs.length > 0 && paidSum >= expected;
+      const isPrizedAlready =
+        slot.prizedMonth !== null && slot.prizedMonth < collectionMonth;
+      const reminderUrl = buildWhatsAppLink(
+        slot.memberPhone,
+        buildDueReminderWhatsAppText({
+          chitGroupId: group.id,
+          chitCode: group.code,
+          chitName: group.name,
+          chitType: group.chitType,
+          monthNumber: collectionMonth,
+          dueDate: activeSchedRow.chitDate,
+          isOverdue: false,
+          daysUntilDue: 0,
+          memberSlotId: slot.id,
+          ticketNumber: slot.ticketNumber,
+          memberName: slot.memberName,
+          memberPhone: slot.memberPhone,
+          isPrizedSubscriber: isPrizedAlready,
+          amountDue: outstanding,
+          organizerName: group.organizerName,
+        })
+      );
+      return {
+        slot,
+        expected,
+        paidRecs,
+        paidSum,
+        outstanding,
+        isFullyPaid,
+        isPrizedAlready,
+        reminderUrl,
+      };
+    });
+
   const takenTickets = new Set(group.slots.map((s) => s.ticketNumber));
   const openTicketNumbers: number[] = [];
   for (let t = 1; t <= group.totalSlots; t++) {
@@ -351,91 +421,126 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
 
       {/* Top Breadcrumb + Summary Bar */}
       <div className="no-print flex flex-wrap items-center justify-between gap-3">
-        <button
-          onClick={onBack}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-[#0B3B2E]/15 bg-white px-3.5 py-2 text-xs font-semibold text-[#14201C] transition hover:bg-[#EFECE4]"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          All Chit Groups
-        </button>
-
-        {isOrganizer && openTicketNumbers.length > 0 && (
-          <button onClick={() => openEnrollDrawer(openTicketNumbers[0])} className="inline-flex items-center gap-2 rounded-xl bg-[#0B3B2E] px-4 py-2 text-xs font-bold text-white hover:bg-[#135341]">
-            <UserPlus className="h-4 w-4" /> Add Member
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={onBack}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-[#0B3B2E]/15 bg-white px-3.5 py-2 text-xs font-semibold text-[#14201C] transition hover:bg-[#EFECE4]"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            All Chit Groups
           </button>
-        )}
-        {isOrganizer && (
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => setShowEditChit(true)}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-[#0B3B2E]/20 bg-white px-3 py-2 text-xs font-semibold text-[#0B3B2E] hover:bg-[#FAF8F4]"
-            >
-              <Pencil className="h-3.5 w-3.5" /> Edit Chit
-            </button>
-            <button
-              onClick={handleMarkCompleted}
-              disabled={manageBusy}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-[#0B3B2E]/20 bg-white px-3 py-2 text-xs font-semibold text-[#0B3B2E] hover:bg-[#FAF8F4]"
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              {group.status === 'COMPLETED' ? 'Reopen' : 'Mark Completed'}
-            </button>
-            {group.payments.length === 0 ? (
+
+          {isOrganizer && (
+            <div ref={manageMenuRef} className="relative">
               <button
-                onClick={() => {
-                  setManageError(null);
-                  setConfirmDeleteChit(true);
-                }}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50"
+                onClick={() => setManageMenuOpen((v) => !v)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#0B3B2E]/20 bg-white px-3 py-2 text-xs font-semibold text-[#0B3B2E] hover:bg-[#FAF8F4]"
+                aria-expanded={manageMenuOpen}
               >
-                <Trash2 className="h-3.5 w-3.5" /> Delete Chit
+                <MoreHorizontal className="h-3.5 w-3.5" />
+                Manage
               </button>
-            ) : (
-              <button
-                disabled
-                title="Payments exist — mark the chit COMPLETED instead"
-                className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-xl border border-[#0B3B2E]/12 bg-[#FAF8F4] px-3 py-2 text-xs font-semibold text-[#55655E]/60"
-              >
-                <Trash2 className="h-3.5 w-3.5" /> Delete Chit
-              </button>
-            )}
-          </div>
-        )}
-        {isOrganizer && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-[#55655E]">Active Cycle:</span>
-            <select
-              value={group.currentMonth}
-              onChange={(e) => handleAdvanceMonth(Number(e.target.value))}
-              className="rounded-xl border border-[#0B3B2E]/20 bg-white px-3 py-1.5 text-xs font-bold text-[#0B3B2E]"
+              {manageMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setManageMenuOpen(false)} />
+                  <div className="absolute left-0 top-full z-50 mt-2 w-56 max-w-[82vw] overflow-hidden rounded-2xl border border-[#0B3B2E]/15 bg-white p-2 shadow-2xl">
+                    <button
+                      onClick={() => {
+                        setManageMenuOpen(false);
+                        setShowEditChit(true);
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold text-[#14201C] hover:bg-[#FAF8F4]"
+                    >
+                      <Pencil className="h-4 w-4 text-[#0B3B2E]" />
+                      Edit Chit
+                    </button>
+                    <button
+                      onClick={() => {
+                        setManageMenuOpen(false);
+                        handleMarkCompleted();
+                      }}
+                      disabled={manageBusy}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold text-[#14201C] hover:bg-[#FAF8F4] disabled:opacity-50"
+                    >
+                      <CheckCircle2 className="h-4 w-4 text-[#0B3B2E]" />
+                      {group.status === 'COMPLETED' ? 'Reopen Chit' : 'Mark Completed'}
+                    </button>
+                    {group.payments.length === 0 ? (
+                      <button
+                        onClick={() => {
+                          setManageMenuOpen(false);
+                          setManageError(null);
+                          setConfirmDeleteChit(true);
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-50"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Delete Chit
+                      </button>
+                    ) : (
+                      <button
+                        disabled
+                        title="Payments exist — mark the chit COMPLETED instead"
+                        className="flex w-full cursor-not-allowed items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold text-[#55655E]/60"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Delete Chit
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {isOrganizer && openTicketNumbers.length > 0 && (
+            <button
+              onClick={() => openEnrollDrawer(openTicketNumbers[0])}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#0B3B2E] px-4 py-2 text-xs font-bold text-white hover:bg-[#135341]"
             >
-              {group.schedule.map((r) => (
-                <option key={r.monthNumber} value={r.monthNumber}>
-                  Month {r.monthNumber} ({formatIndianDate(r.chitDate)})
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+              <UserPlus className="h-4 w-4" /> Add Member
+            </button>
+          )}
+          {isOrganizer && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-[#55655E]">Cycle:</span>
+              <select
+                value={group.currentMonth}
+                onChange={(e) => handleAdvanceMonth(Number(e.target.value))}
+                className="rounded-xl border border-[#0B3B2E]/20 bg-white px-3 py-1.5 text-xs font-bold text-[#0B3B2E]"
+              >
+                {group.schedule.map((r) => (
+                  <option key={r.monthNumber} value={r.monthNumber}>
+                    Month {r.monthNumber} ({formatIndianDate(r.chitDate)})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Sub-navigation Tabs */}
-      <div className="no-print flex flex-wrap gap-2 rounded-2xl border border-[#0B3B2E]/12 bg-white p-1.5">
+      <div className="no-print flex flex-wrap gap-1.5 rounded-2xl border border-[#0B3B2E]/12 bg-white p-1.5">
         {[
-          { id: 'passbook', label: 'Digital Passbook', icon: BookOpen },
+          { id: 'passbook', label: 'Digital Passbook', short: 'Passbook', icon: BookOpen },
           {
             id: 'collections',
             label: isOrganizer
               ? `Members & Collections (${group.enrolledSlots}/${group.totalSlots})`
               : 'Ticket & Payments',
+            short: isOrganizer ? 'Members' : 'Payments',
             icon: Users,
           },
           {
             id: 'lifts',
             label: group.chitType === 'AUCTION' ? 'Monthly Auctions' : 'Monthly Winners',
+            short: group.chitType === 'AUCTION' ? 'Auctions' : 'Winners',
             icon: group.chitType === 'AUCTION' ? Gavel : Award,
           },
-          { id: 'calculator', label: 'Best Month to Lift', icon: Calculator },
+          { id: 'calculator', label: 'Best Month to Lift', short: 'Lift', icon: Calculator },
         ].map((tab) => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
@@ -443,14 +548,15 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as DetailTab)}
-              className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-bold transition sm:flex-none ${
+              className={`flex flex-1 flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 text-[10px] font-bold leading-tight transition sm:flex-none sm:flex-row sm:gap-2 sm:px-3.5 sm:py-2.5 sm:text-xs ${
                 active
                   ? 'bg-[#0B3B2E] text-white shadow-xs'
                   : 'text-[#55655E] hover:bg-[#FAF8F4] hover:text-[#14201C]'
               }`}
             >
-              <Icon className="h-4 w-4" />
-              <span>{tab.label}</span>
+              <Icon className="h-4 w-4 shrink-0" />
+              <span className="block truncate sm:hidden">{tab.short}</span>
+              <span className="hidden sm:inline">{tab.label}</span>
             </button>
           );
         })}
@@ -504,10 +610,167 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
           </div>
 
           {group.slots.length === 0 && (
-            <p className="rounded-xl border border-[#0B3B2E]/15 bg-white p-5 text-sm text-[#55655E]">No members enrolled yet. Use Add Member to assign the first ticket.</p>
+            <p className="hidden rounded-xl border border-[#0B3B2E]/15 bg-white p-5 text-sm text-[#55655E] md:block">No members enrolled yet. Use Add Member to assign the first ticket.</p>
           )}
           <div className="overflow-hidden rounded-2xl border border-[#0B3B2E]/15 bg-white">
-            <div className="overflow-x-auto">
+            {/* Mobile: stacked member cards */}
+            <div className="md:hidden divide-y divide-[#0B3B2E]/10">
+              {slotRows.length === 0 && (
+                <p className="p-5 text-center text-sm text-[#55655E]">
+                  No members enrolled yet. Use Add Member to assign the first ticket.
+                </p>
+              )}
+              {slotRows.map(
+                ({
+                  slot,
+                  expected,
+                  paidRecs,
+                  paidSum,
+                  outstanding,
+                  isFullyPaid,
+                  reminderUrl,
+                }) => (
+                  <div key={slot.id} className="space-y-3 p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <button
+                        onClick={() => {
+                          setSelectedSlotId(slot.id);
+                          setActiveTab('passbook');
+                        }}
+                        className="text-left"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span className="rounded bg-[#0B3B2E]/10 px-1.5 py-0.5 font-mono text-[10px] font-bold text-[#0B3B2E]">
+                            #{slot.ticketNumber}
+                          </span>
+                          <span className="font-semibold text-sm text-[#14201C]">
+                            {slot.memberName}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-[11px] text-[#55655E] tabular-nums">
+                          +91 {slot.memberPhone}
+                        </p>
+                      </button>
+                      {slot.prizedMonth ? (
+                        <span className="inline-flex shrink-0 items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-900">
+                          Prized M{slot.prizedMonth}
+                        </span>
+                      ) : (
+                        <span className="inline-flex shrink-0 items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">
+                          Non-Prized
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between rounded-xl bg-[#FAF8F4] px-3 py-2">
+                      <span className="text-xs text-[#55655E]">
+                        Month {collectionMonth} Payable
+                      </span>
+                      <span className="text-sm font-bold text-[#0B3B2E] tabular-nums">
+                        {formatPassbookAmount(expected)}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {isFullyPaid ? (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {paidRecs.map((p) => (
+                            <button
+                              key={p.id}
+                              onClick={() => onOpenReceipt(p)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-emerald-700/25 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-900 hover:bg-emerald-100"
+                              title="View Signed Official Receipt"
+                            >
+                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-700" />
+                              {p.receiptNumber}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <>
+                          {paidRecs.length > 0 && (
+                            <span
+                              className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-bold text-amber-900 tabular-nums"
+                              title="Partial payment received — balance outstanding"
+                            >
+                              {formatPassbookAmount(paidSum)} / {formatPassbookAmount(expected)}
+                            </span>
+                          )}
+                          <button
+                            onClick={() =>
+                              openPayModal(
+                                slot,
+                                collectionMonth,
+                                paidRecs.length > 0 ? outstanding : expected
+                              )
+                            }
+                            className="rounded-lg bg-[#0B3B2E] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#135341]"
+                          >
+                            {isOrganizer
+                              ? paidRecs.length > 0
+                                ? 'Collect Balance'
+                                : 'Collect & Sign'
+                              : paidRecs.length > 0
+                                ? 'Pay Balance'
+                                : 'Pay Now'}
+                          </button>
+                          {isOrganizer && (
+                            <a
+                              href={reminderUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Send WhatsApp Reminder"
+                              className="rounded-lg border border-[#0B3B2E]/20 p-1.5 text-[#0B3B2E] hover:bg-[#FAF8F4]"
+                            >
+                              <MessageCircle className="h-4 w-4" />
+                            </a>
+                          )}
+                        </>
+                      )}
+                    </div>
+
+                    {isOrganizer && (
+                      <div className="flex items-center justify-end gap-1.5 pt-1">
+                        <button
+                          onClick={() => setEditSlot(slot)}
+                          title="Edit subscriber / ticket"
+                          className="rounded-lg border border-[#0B3B2E]/20 p-1.5 text-[#0B3B2E] hover:bg-[#FAF8F4]"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setResetPinSlot(slot)}
+                          title="Reset member PIN"
+                          className="rounded-lg border border-[#0B3B2E]/20 p-1.5 text-[#0B3B2E] hover:bg-[#FAF8F4]"
+                        >
+                          <KeyRound className="h-3.5 w-3.5" />
+                        </button>
+                        {group.payments.some((p) => p.memberSlotId === slot.id) ? (
+                          <button
+                            disabled
+                            title="Ticket has payments — it cannot be removed"
+                            className="cursor-not-allowed rounded-lg border border-[#0B3B2E]/12 p-1.5 text-[#55655E]/50"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmRemoveSlot(slot)}
+                            title="Remove ticket"
+                            className="rounded-lg border border-red-300 p-1.5 text-red-700 hover:bg-red-50"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              )}
+            </div>
+
+            {/* Desktop: data table */}
+            <div className="hidden md:block overflow-x-auto rm-scroll-x">
               <table className="w-full min-w-[680px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-[#0B3B2E]/15 bg-[#FAF8F4] text-[11px] font-bold tracking-wider text-[#55655E] uppercase">
@@ -520,44 +783,17 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#0B3B2E]/10">
-                  {group.slots
-                    .filter((s) => isOrganizer || s.userId === currentUser.id)
-                    .map((slot) => {
-                      const expected = getMemberPayableForMonth(
-                        group.chitType,
-                        activeSchedRow,
-                        slot.prizedMonth
-                      );
-                      const paidRecs = paymentsInMonth.get(slot.id) ?? [];
-                      const paidSum = paidRecs.reduce((s, p) => s + p.amountPaid, 0);
-                      const outstanding = Math.max(0, expected - paidSum);
-                      const isFullyPaid = paidRecs.length > 0 && paidSum >= expected;
-                      const isPrizedAlready =
-                        slot.prizedMonth !== null && slot.prizedMonth < collectionMonth;
-
-                      const reminderUrl = buildWhatsAppLink(
-                        slot.memberPhone,
-                        buildDueReminderWhatsAppText({
-                          chitGroupId: group.id,
-                          chitCode: group.code,
-                          chitName: group.name,
-                          chitType: group.chitType,
-                          monthNumber: collectionMonth,
-                          dueDate: activeSchedRow.chitDate,
-                          isOverdue: false,
-                          daysUntilDue: 0,
-                          memberSlotId: slot.id,
-                          ticketNumber: slot.ticketNumber,
-                          memberName: slot.memberName,
-                          memberPhone: slot.memberPhone,
-                          isPrizedSubscriber: isPrizedAlready,
-                          amountDue: outstanding,
-                          organizerName: group.organizerName,
-                        })
-                      );
-
-                      return (
-                        <tr key={slot.id} className="hover:bg-[#FAF8F4]/75">
+                  {slotRows.map(
+                    ({
+                      slot,
+                      expected,
+                      paidRecs,
+                      paidSum,
+                      outstanding,
+                      isFullyPaid,
+                      reminderUrl,
+                    }) => (
+                      <tr key={slot.id} className="hover:bg-[#FAF8F4]/75">
                           <td className="px-4 py-3 font-bold text-[#0B3B2E] tabular-nums">
                             #{slot.ticketNumber}
                           </td>
@@ -687,8 +923,8 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
                             </td>
                           )}
                         </tr>
-                      );
-                    })}
+                      )
+                    )}
                 </tbody>
               </table>
             </div>
@@ -703,7 +939,83 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
                   Update a receipt or void it with a reason. Every change is written to the audit trail.
                 </p>
               </div>
-              <div className="overflow-x-auto">
+              {/* Mobile: stacked receipt cards */}
+              <div className="md:hidden divide-y divide-[#0B3B2E]/10 p-2">
+                {group.payments.map((p) => {
+                  const isVoid = (p.status ?? 'POSTED') === 'VOID';
+                  return (
+                    <div
+                      key={p.id}
+                      className={`space-y-2 rounded-xl p-3 ${
+                        isVoid ? 'bg-red-50/40' : 'bg-[#FAF8F4]/60'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          onClick={() => onOpenReceipt(p)}
+                          className="font-semibold text-[#0B3B2E] tabular-nums underline-offset-2 hover:underline"
+                        >
+                          {p.receiptNumber}
+                        </button>
+                        {isVoid ? (
+                          <span className="inline-flex rounded-full bg-red-100 px-2.5 py-0.5 text-[11px] font-bold text-red-800">
+                            VOID
+                          </span>
+                        ) : (
+                          <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800">
+                            POSTED
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-[#55655E]">
+                        {p.memberName} · Ticket #{p.ticketNumber} · Month {p.monthNumber}
+                      </p>
+                      <div className="flex flex-wrap items-center justify-between gap-1">
+                        <span className="text-sm font-bold text-[#14201C] tabular-nums">
+                          {formatPassbookAmount(p.amountPaid)}
+                        </span>
+                        <span className="text-[11px] text-[#55655E]">
+                          {formatIndianDate(p.paidDate)} · {p.paymentMethod.replace('_', ' ')}
+                        </span>
+                      </div>
+                      {isVoid && p.voidReason && (
+                        <p className="text-[11px] text-red-800">Reason: {p.voidReason}</p>
+                      )}
+                      <div className="flex items-center justify-end gap-1.5 pt-1">
+                        {isVoid ? (
+                          <button
+                            disabled
+                            title="A voided payment cannot be edited"
+                            className="cursor-not-allowed rounded-lg border border-[#0B3B2E]/12 p-1.5 text-[#55655E]/50"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => setEditPayment(p)}
+                              title="Edit payment"
+                              className="rounded-lg border border-[#0B3B2E]/20 p-1.5 text-[#0B3B2E] hover:bg-[#FAF8F4]"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setVoidPayment(p)}
+                              title="Void payment"
+                              className="rounded-lg border border-red-300 p-1.5 text-red-700 hover:bg-red-50"
+                            >
+                              <Ban className="h-3.5 w-3.5" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop: data table */}
+              <div className="hidden md:block overflow-x-auto rm-scroll-x">
                 <table className="w-full min-w-[860px] text-left text-sm">
                   <thead>
                     <tr className="border-b border-[#0B3B2E]/15 bg-[#FAF8F4] text-[11px] font-bold tracking-wider text-[#55655E] uppercase">

@@ -102,33 +102,33 @@ export const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
       </div>
 
       {/* KPI Cards */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-3.5 grid-cols-2 sm:grid-cols-3">
         <div className="rounded-2xl border border-[#0B3B2E]/15 bg-white p-4">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-[#55655E]">Pending Installments</span>
-            <TrendingUp className="h-4 w-4 text-[#0B3B2E]" />
+            <span className="text-[11px] font-semibold leading-tight text-[#55655E]">Pending Installments</span>
+            <TrendingUp className="h-4 w-4 shrink-0 text-[#0B3B2E]" />
           </div>
-          <p className="mt-1.5 text-2xl font-bold text-[#14201C] tabular-nums">
+          <p className="mt-1.5 text-xl font-bold leading-tight text-[#14201C] tabular-nums sm:text-2xl">
             {formatPassbookAmount(totalPendingAmount)}
           </p>
-          <p className="mt-1 text-xs text-[#55655E]">Across {dues.length} unpaid member tickets</p>
+          <p className="mt-1 text-[11px] leading-tight text-[#55655E]">Across {dues.length} unpaid member tickets</p>
         </div>
 
         <div className="rounded-2xl border border-[#0B3B2E]/15 bg-white p-4">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-[#55655E]">Overdue Tickets</span>
+            <span className="text-[11px] font-semibold leading-tight text-[#55655E]">Overdue Tickets</span>
             <AlertTriangle
-              className={`h-4 w-4 ${overdueList.length > 0 ? 'text-red-600' : 'text-emerald-600'}`}
+              className={`h-4 w-4 shrink-0 ${overdueList.length > 0 ? 'text-red-600' : 'text-emerald-600'}`}
             />
           </div>
           <p
-            className={`mt-1.5 text-2xl font-bold tabular-nums ${
+            className={`mt-1.5 text-xl font-bold leading-tight tabular-nums sm:text-2xl ${
               overdueList.length > 0 ? 'text-red-700' : 'text-emerald-700'
             }`}
           >
             {overdueList.length}
           </p>
-          <p className="mt-1 text-xs text-[#55655E]">
+          <p className="mt-1 text-[11px] leading-tight text-[#55655E]">
             {overdueList.length > 0
               ? 'Past monthly chit due date — send WhatsApp alert'
               : 'All past due dates settled'}
@@ -137,14 +137,14 @@ export const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
 
         <div className="rounded-2xl border border-[#0B3B2E]/15 bg-white p-4">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-[#55655E]">Active Ticket Slots</span>
-            <Users className="h-4 w-4 text-[#0B3B2E]" />
+            <span className="text-[11px] font-semibold leading-tight text-[#55655E]">Active Ticket Slots</span>
+            <Users className="h-4 w-4 shrink-0 text-[#0B3B2E]" />
           </div>
-          <p className="mt-1.5 text-2xl font-bold text-[#14201C] tabular-nums">
+          <p className="mt-1.5 text-xl font-bold leading-tight text-[#14201C] tabular-nums sm:text-2xl">
             {groups.reduce((s, g) => s + g.enrolledSlots, 0)} /{' '}
             {groups.reduce((s, g) => s + g.totalSlots, 0)}
           </p>
-          <p className="mt-1 text-xs text-[#55655E]">Enrolled subscribers across active groups</p>
+          <p className="mt-1 text-[11px] leading-tight text-[#55655E]">Enrolled subscribers across active groups</p>
         </div>
       </div>
 
@@ -260,7 +260,7 @@ export const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
                       </span>
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col items-end gap-1.5 sm:flex-row sm:items-center sm:gap-2">
                     <span className="text-sm font-bold text-[#0B3B2E] tabular-nums">
                       {formatPassbookAmount(d.amountDue)}
                     </span>

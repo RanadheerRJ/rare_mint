@@ -331,7 +331,7 @@ export const LiftCalculator: React.FC<LiftCalculatorProps> = ({
           </span>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto rm-scroll-x">
           <table className="w-full min-w-[700px] text-left text-sm">
             <thead>
               <tr className="border-b border-[#0B3B2E]/15 bg-[#FAF8F4] text-[11px] font-bold tracking-wider text-[#55655E] uppercase">
