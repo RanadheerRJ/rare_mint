@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { localStore } from '../src/api/localStore';
+import { localStore, setDemoModeEnabled } from '../src/api/localStore';
 
 const storage = new Map<string, string>();
 Object.defineProperty(globalThis, 'localStorage', { value: {
@@ -69,6 +69,7 @@ test('browser ledger drops legacy demo data and keeps real entries', () => {
   assert.equal(JSON.parse(localStore.exportBackupJson()).chitGroups.length, 1);
 
   // A migrated ledger is never purged again (a real account may reuse a number later).
+  setDemoModeEnabled(true);
   const registered = localStore.register({ name: 'New', phone: '9848011111', pin: '1234', role: 'organizer', city: '' }).user;
   assert.equal(localStore.login('9848011111', '1234').user.id, registered.id);
 });
@@ -79,8 +80,53 @@ test('SQLite database drops legacy demo data once and keeps real entries', async
   process.chdir(temp);
   const { initDatabase, purgeLegacyDemoDataOnce, db } = await import('../server/db');
   try {
-    initDatabase();
+    // Build a pre-auth-schema (v1) database: plaintext PIN columns and all.
     const ledger = legacyLedger();
+    db.exec(`
+      CREATE TABLE users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL, phone TEXT NOT NULL UNIQUE, pin TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('organizer', 'member')),
+        city TEXT NOT NULL DEFAULT 'Hyderabad',
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE chit_groups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+        chit_type TEXT NOT NULL CHECK (chit_type IN ('FIXED_TABLE', 'AUCTION')),
+        face_value INTEGER NOT NULL, duration_months INTEGER NOT NULL, total_slots INTEGER NOT NULL,
+        current_month INTEGER NOT NULL DEFAULT 1, start_date TEXT NOT NULL,
+        due_day_of_month INTEGER NOT NULL DEFAULT 10, base_installment INTEGER NOT NULL,
+        foreman_commission_pct REAL NOT NULL DEFAULT 5, max_bid_pct REAL NOT NULL DEFAULT 35,
+        organizer_id INTEGER NOT NULL REFERENCES users(id),
+        status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'COMPLETED')),
+        notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE chit_schedules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chit_group_id INTEGER NOT NULL REFERENCES chit_groups(id) ON DELETE CASCADE,
+        month_number INTEGER NOT NULL, chit_date TEXT NOT NULL,
+        non_prized_installment INTEGER NOT NULL, chit_value INTEGER NOT NULL, prized_installment INTEGER NOT NULL,
+        bid_discount INTEGER, dividend_per_member INTEGER, foreman_commission INTEGER,
+        is_auction_completed INTEGER NOT NULL DEFAULT 0, winner_member_slot_id INTEGER,
+        payout_date TEXT, payout_reference TEXT, UNIQUE(chit_group_id, month_number)
+      );
+      CREATE TABLE member_slots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chit_group_id INTEGER NOT NULL REFERENCES chit_groups(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id), ticket_number INTEGER NOT NULL,
+        joined_date TEXT NOT NULL, prized_month INTEGER, prized_amount INTEGER, payout_date TEXT,
+        UNIQUE(chit_group_id, ticket_number)
+      );
+      CREATE TABLE payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, receipt_number TEXT NOT NULL UNIQUE,
+        chit_group_id INTEGER NOT NULL REFERENCES chit_groups(id) ON DELETE CASCADE,
+        member_slot_id INTEGER NOT NULL REFERENCES member_slots(id) ON DELETE CASCADE,
+        month_number INTEGER NOT NULL, amount_paid INTEGER NOT NULL, paid_date TEXT NOT NULL,
+        payment_method TEXT NOT NULL CHECK (payment_method IN ('UPI', 'CASH', 'BANK_TRANSFER', 'CHEQUE')),
+        reference_note TEXT NOT NULL DEFAULT '', signed_by_name TEXT NOT NULL, signature_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE(member_slot_id, month_number)
+      );
+    `);
     for (const u of ledger.users) {
       db.prepare('INSERT INTO users (id, name, phone, pin, role) VALUES (?, ?, ?, ?, ?)').run(u.id, u.name, u.phone, u.pin, u.role);
     }
@@ -101,12 +147,8 @@ test('SQLite database drops legacy demo data once and keeps real entries', async
         VALUES (?, ?, ?, ?, 1, 10000, '2026-06-10', 'UPI', 'Foreman', 'x')`).run(p.id, p.receiptNumber, p.chitGroupId, p.memberSlotId);
     }
 
-    // Already-migrated databases are left alone.
-    purgeLegacyDemoDataOnce();
-    assert.equal((db.prepare('SELECT count(*) AS n FROM users').get() as { n: number }).n, 6);
-
-    db.exec('PRAGMA user_version = 0');
-    purgeLegacyDemoDataOnce();
+    // initDatabase purges the demo rows and migrates the schema (hashed PINs).
+    initDatabase();
     const ids = (table: string) => (db.prepare(`SELECT id FROM ${table} ORDER BY id`).all() as Array<{ id: number }>).map((r) => r.id);
     assert.deepEqual(ids('users'), [4, 5, 6]);
     assert.deepEqual(ids('chit_groups'), [2]);
@@ -115,6 +157,25 @@ test('SQLite database drops legacy demo data once and keeps real entries', async
     assert.deepEqual(ids('chit_schedules'), [2]);
     const sched = db.prepare('SELECT winner_member_slot_id AS w, is_auction_completed AS c FROM chit_schedules').get() as { w: number | null; c: number };
     assert.deepEqual({ ...sched }, { w: null, c: 0 });
+    assert.equal((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 2);
+
+    // Migration hashed the kept plaintext PINs and dropped the plaintext column.
+    const userCols = (db.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>).map((c) => c.name);
+    assert.equal(userCols.includes('pin'), false);
+    const kept = db.prepare('SELECT pin_hash, pin_salt FROM users WHERE id = 4').get() as { pin_hash: string; pin_salt: string };
+    assert.notEqual(kept.pin_hash, '4567');
+    const { verifyPin } = await import('../server/auth/passwords');
+    assert.equal(verifyPin('4567', kept.pin_hash, kept.pin_salt), true);
+
+    // An already-purged database is left alone.
+    purgeLegacyDemoDataOnce();
+    assert.deepEqual(ids('users'), [4, 5, 6]);
+
+    // A migrated (v2) database can never purge again — a real account may
+    // reuse a demo phone number later.
+    db.exec('PRAGMA user_version = 0');
+    purgeLegacyDemoDataOnce();
+    assert.deepEqual(ids('users'), [4, 5, 6]);
     assert.equal((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 1);
   } finally {
     db.close();

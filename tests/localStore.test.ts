@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { localStore } from '../src/api/localStore';
+import { localStore, setDemoModeEnabled } from '../src/api/localStore';
 
 const storage = new Map<string, string>();
 Object.defineProperty(globalThis, 'localStorage', { value: {
@@ -13,6 +13,12 @@ test('empty ledger and owner enrollment lifecycle', () => {
   storage.clear();
   const empty = JSON.parse(localStore.exportBackupJson());
   assert.deepEqual([empty.users, empty.chitGroups, empty.slots, empty.payments], [[], [], [], []]);
+  // Static-mode registration is invite-only unless the demo flag is set.
+  assert.throws(
+    () => localStore.register({name:'Owner', phone:'9000000001', pin:'4567', role:'organizer', city:''}),
+    /invite-only|disabled/i
+  );
+  setDemoModeEnabled(true);
   const owner = localStore.register({name:'Owner', phone:'9000000001', pin:'4567', role:'organizer', city:''}).user;
   const other = localStore.register({name:'Other', phone:'9000000002', pin:'4567', role:'organizer', city:''}).user;
   const group = localStore.createChit({name:'Group', code:'TEST', chitType:'AUCTION', faceValue:40000, durationMonths:4, startDate:'2026-11-10', dueDayOfMonth:10, baseInstallment:10000, foremanCommissionPct:5, maxBidPct:35, organizerId:owner.id, notes:'', schedule:[]}).group;
