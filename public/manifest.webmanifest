@@ -1,0 +1,46 @@
+{
+  "name": "Rare Mint — Chit Fund Finance",
+  "short_name": "Rare Mint",
+  "description": "Digital Chit Fund Passbook, Monthly Collection Ledger, Lift ROI Calculator & Official Receipts",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#FAF8F4",
+  "theme_color": "#0B3B2E",
+  "categories": ["finance", "business", "productivity"],
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Digital Passbook",
+      "short_name": "Passbook",
+      "url": "./?tab=groups",
+      "icons": [{ "src": "./icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Best Month to Lift Calculator",
+      "short_name": "Lift ROI",
+      "url": "./?tab=calculator",
+      "icons": [{ "src": "./icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

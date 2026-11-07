@@ -1,0 +1,10 @@
+node_modules/
+dist/
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+.DS_Store
+.env
+.playwright-cli/

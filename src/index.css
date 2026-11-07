@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --rm-emerald: #0b3b2e;
+    --rm-emerald-mid: #135341;
+    --rm-brass: #b8860b;
+    --rm-brass-light: #d4a437;
+    --rm-ivory: #faf8f4;
+    --rm-paper: #ffffff;
+    --rm-ink: #14201c;
+    --rm-muted: #55655e;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: var(--rm-ivory);
+    color: var(--rm-ink);
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Authentic Passbook Grid Styling */
+.passbook-sheet {
+  background: linear-gradient(180deg, #fffdf9 0%, #fcfaf4 100%);
+  box-shadow: 0 1px 3px rgba(11, 59, 46, 0.08), 0 8px 24px rgba(11, 59, 46, 0.05);
+}
+
+.signature-stamp {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-style: italic;
+}
+
+@media print {
+  body {
+    background: #ffffff !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only-card {
+    box-shadow: none !important;
+    border: 1px solid #14201c !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}

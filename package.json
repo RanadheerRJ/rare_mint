@@ -1,0 +1,33 @@
+{
+  "name": "rare-mint",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Rare Mint — Chit Fund Finance & Digital Passbook PWA for Organizers and Subscribers",
+  "scripts": {
+    "dev": "NODE_NO_WARNINGS=1 tsx server/index.ts",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "start": "NODE_ENV=production NODE_NO_WARNINGS=1 tsx server/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "express": "^5.1.0",
+    "lucide-react": "^0.511.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.7",
+    "@types/express": "^5.0.2",
+    "@types/node": "^22.15.21",
+    "@types/react": "^19.1.5",
+    "@types/react-dom": "^19.1.5",
+    "@vitejs/plugin-react": "^4.5.0",
+    "tailwindcss": "^4.1.7",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
+  }
+}
