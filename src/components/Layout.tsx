@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { User } from '../types';
 import { StorageBackendMode, api } from '../api/client';
+import { HardRefreshButton } from './HardRefreshButton';
 
 export type NavTab = 'overview' | 'groups' | 'calculator' | 'dues';
 
@@ -188,6 +189,8 @@ export const Layout: React.FC<LayoutProps> = ({
             Export / Restore Ledger
           </button>}
 
+          <HardRefreshButton variant="sidebar" />
+
           <div className="rounded-xl bg-white/8 p-3">
             <p className="text-xs font-bold text-white">{user.name}</p>
             <p className="text-[11px] text-white/70 capitalize">
@@ -250,6 +253,8 @@ export const Layout: React.FC<LayoutProps> = ({
               >
                 <DatabaseBackup className="h-4 w-4" />
               </button>}
+
+              <HardRefreshButton variant="icon" />
 
               <button
                 onClick={handleInstallClick}
