@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Lock, Phone, ShieldCheck, UserCheck } from 'lucide-react';
+import { Lock, Phone } from 'lucide-react';
 import { User } from '../types';
 import { api } from '../api/client';
 import { HardRefreshButton } from './HardRefreshButton';
@@ -8,13 +8,13 @@ interface AuthScreenProps {
   onAuthenticated: (user: User) => void;
 }
 
+/**
+ * Invite-only sign-in. There is no self-registration: owners are invited by
+ * the platform developer and members are added by their chit owner.
+ */
 export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
-  const [name, setName] = useState('');
-  const [role, setRole] = useState<'organizer' | 'member'>('organizer');
-  const [city, setCity] = useState('Hyderabad');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -23,13 +23,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
     setError(null);
     setLoading(true);
     try {
-      if (mode === 'login') {
-        const { user } = await api.login(phone, pin);
-        onAuthenticated(user);
-      } else {
-        const { user } = await api.register({ name, phone, pin, role, city });
-        onAuthenticated(user);
-      }
+      const { user } = await api.login(phone, pin);
+      onAuthenticated(user);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Authentication failed');
     } finally {
@@ -61,30 +56,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
             Manage fixed passbook schedules and monthly dividend auctions, calculate the optimal month to lift, and share signed receipts.
           </p>
 
-
+          <p className="rounded-xl border border-[#0B3B2E]/15 bg-white/70 px-3.5 py-2.5 text-xs leading-relaxed text-[#55655E]">
+            <strong className="text-[#0B3B2E]">Invite-only access.</strong> Chit owners are invited by the
+            platform developer, and subscribers are added by their chit owner. Use the mobile number and
+            PIN you were given.
+          </p>
         </div>
 
-        {/* Right Sign-in / Register Card */}
+        {/* Right Sign-in Card */}
         <div className="lg:col-span-6 rounded-2xl border border-[#0B3B2E]/15 bg-white p-6 shadow-lg">
-          <div className="mb-5 flex rounded-xl bg-[#FAF8F4] p-1">
-            <button
-              type="button"
-              onClick={() => setMode('login')}
-              className={`flex-1 rounded-lg py-2 text-xs font-bold transition ${
-                mode === 'login' ? 'bg-[#0B3B2E] text-white' : 'text-[#55655E]'
-              }`}
-            >
-              Sign In with Mobile & PIN
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode('register')}
-              className={`flex-1 rounded-lg py-2 text-xs font-bold transition ${
-                mode === 'register' ? 'bg-[#0B3B2E] text-white' : 'text-[#55655E]'
-              }`}
-            >
-              Create Account
-            </button>
+          <div className="mb-5">
+            <h2 className="text-sm font-bold tracking-tight text-[#0B3B2E]">Sign In with Mobile & PIN</h2>
           </div>
 
           {error && (
@@ -94,59 +76,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {mode === 'register' && (
-              <>
-                <div>
-                  <label className="block text-xs font-semibold text-[#55655E]">Full Name</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Full name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3.5 py-2.5 text-sm font-medium focus:border-[#0B3B2E] focus:outline-none"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setRole('member')}
-                    className={`flex items-center justify-center gap-1.5 rounded-xl border py-2.5 text-xs font-bold ${
-                      role === 'member'
-                        ? 'border-[#0B3B2E] bg-emerald-50 text-[#0B3B2E]'
-                        : 'border-[#0B3B2E]/15 text-[#55655E]'
-                    }`}
-                  >
-                    <UserCheck className="h-4 w-4" />
-                    Chit Subscriber
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRole('organizer')}
-                    className={`flex items-center justify-center gap-1.5 rounded-xl border py-2.5 text-xs font-bold ${
-                      role === 'organizer'
-                        ? 'border-[#0B3B2E] bg-emerald-50 text-[#0B3B2E]'
-                        : 'border-[#0B3B2E]/15 text-[#55655E]'
-                    }`}
-                  >
-                    <ShieldCheck className="h-4 w-4" />
-                    Chit Organizer
-                  </button>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-[#55655E]">City / Branch</label>
-                  <input
-                    type="text"
-                    value={city}
-                    onChange={(e) => setCity(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-[#0B3B2E]/20 bg-[#FAF8F4] px-3.5 py-2 text-sm focus:border-[#0B3B2E] focus:outline-none"
-                  />
-                </div>
-              </>
-            )}
-
             <div>
               <label className="block text-xs font-semibold text-[#55655E]">
                 10-Digit Mobile Number
@@ -186,11 +115,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
               disabled={loading}
               className="w-full rounded-xl bg-[#0B3B2E] py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#135341] disabled:opacity-50"
             >
-              {loading
-                ? 'Opening Passbook…'
-                : mode === 'login'
-                  ? 'Sign In to Rare Mint'
-                  : 'Register & Open Passbook'}
+              {loading ? 'Opening Passbook…' : 'Sign In to Rare Mint'}
             </button>
           </form>
 

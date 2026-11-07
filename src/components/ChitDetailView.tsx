@@ -2,13 +2,17 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   Award,
+  Ban,
   BookOpen,
   Calculator,
   CheckCircle2,
   ChevronRight,
   Gavel,
+  KeyRound,
   MessageCircle,
+  Pencil,
   Plus,
+  Trash2,
   UserPlus,
   Users,
 } from 'lucide-react';
@@ -30,6 +34,14 @@ import {
 import { PassbookTable } from './PassbookTable';
 import { LiftCalculator } from './LiftCalculator';
 import { NumberField } from './NumberField';
+import {
+  ConfirmModal,
+  EditChitModal,
+  EditMemberModal,
+  EditPaymentModal,
+  ResetPinModal,
+  VoidPaymentModal,
+} from './ManageModals';
 
 interface ChitDetailViewProps {
   groupId: number;
@@ -85,10 +97,21 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
   const [liftMessage, setLiftMessage] = useState<string | null>(null);
   const [liftError, setLiftError] = useState<string | null>(null);
 
+  // Management state (chit / member / payment CRUD)
+  const [showEditChit, setShowEditChit] = useState(false);
+  const [editSlot, setEditSlot] = useState<MemberSlot | null>(null);
+  const [resetPinSlot, setResetPinSlot] = useState<MemberSlot | null>(null);
+  const [editPayment, setEditPayment] = useState<PaymentRecord | null>(null);
+  const [voidPayment, setVoidPayment] = useState<PaymentRecord | null>(null);
+  const [confirmDeleteChit, setConfirmDeleteChit] = useState(false);
+  const [confirmRemoveSlot, setConfirmRemoveSlot] = useState<MemberSlot | null>(null);
+  const [manageBusy, setManageBusy] = useState(false);
+  const [manageError, setManageError] = useState<string | null>(null);
+
   const loadDetail = useCallback(async () => {
     setLoading(true);
     try {
-      const { group: detail } = await api.getChitDetail(groupId, currentUser.id);
+      const { group: detail } = await api.getChitDetail(groupId);
       setGroup(detail);
       setCollectionMonth(detail.currentMonth);
       setLiftMonth(detail.currentMonth);
@@ -165,7 +188,6 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
     try {
       await api.enrollSlot(group.id, {
         ticketNumber: enrollTicket,
-        organizerId: currentUser.id,
         newMemberPin: enrollMode === 'new' ? newMemberPin : undefined,
         userId: enrollMode === 'existing' ? selectedExistingUserId : undefined,
         newMemberName: enrollMode === 'new' ? newMemberName : undefined,
@@ -212,6 +234,55 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
     onDataChanged();
   };
 
+  const handleDeleteChit = async () => {
+    if (!group) return;
+    setManageBusy(true);
+    setManageError(null);
+    try {
+      await api.deleteChit(group.id);
+      setConfirmDeleteChit(false);
+      onDataChanged();
+      onBack();
+    } catch (err) {
+      setManageError(err instanceof Error ? err.message : 'Delete failed');
+    } finally {
+      setManageBusy(false);
+    }
+  };
+
+  const handleMarkCompleted = async () => {
+    if (!group) return;
+    setManageBusy(true);
+    setManageError(null);
+    try {
+      await api.updateChit(group.id, {
+        status: group.status === 'COMPLETED' ? 'ACTIVE' : 'COMPLETED',
+      });
+      await loadDetail();
+      onDataChanged();
+    } catch (err) {
+      setManageError(err instanceof Error ? err.message : 'Update failed');
+    } finally {
+      setManageBusy(false);
+    }
+  };
+
+  const handleRemoveSlot = async () => {
+    if (!group || !confirmRemoveSlot) return;
+    setManageBusy(true);
+    setManageError(null);
+    try {
+      await api.removeSlot(group.id, confirmRemoveSlot.id);
+      setConfirmRemoveSlot(null);
+      await loadDetail();
+      onDataChanged();
+    } catch (err) {
+      setManageError(err instanceof Error ? err.message : 'Remove failed');
+    } finally {
+      setManageBusy(false);
+    }
+  };
+
   if (loading || !group) {
     return (
       <div className="rounded-2xl border border-[#0B3B2E]/10 bg-white p-10 text-center text-sm text-[#55655E]">
@@ -253,6 +324,15 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
 
   return (
     <div className="space-y-5">
+      {manageError && !confirmDeleteChit && !confirmRemoveSlot && (
+        <div className="rounded-xl border border-red-300 bg-red-50 px-3.5 py-2.5 text-xs font-semibold text-red-800">
+          {manageError}
+          <button type="button" onClick={() => setManageError(null)} className="ml-2 underline">
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Top Breadcrumb + Summary Bar */}
       <div className="no-print flex flex-wrap items-center justify-between gap-3">
         <button
@@ -267,6 +347,43 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
           <button onClick={() => openEnrollDrawer(openTicketNumbers[0])} className="inline-flex items-center gap-2 rounded-xl bg-[#0B3B2E] px-4 py-2 text-xs font-bold text-white hover:bg-[#135341]">
             <UserPlus className="h-4 w-4" /> Add Member
           </button>
+        )}
+        {isOrganizer && (
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setShowEditChit(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-[#0B3B2E]/20 bg-white px-3 py-2 text-xs font-semibold text-[#0B3B2E] hover:bg-[#FAF8F4]"
+            >
+              <Pencil className="h-3.5 w-3.5" /> Edit Chit
+            </button>
+            <button
+              onClick={handleMarkCompleted}
+              disabled={manageBusy}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-[#0B3B2E]/20 bg-white px-3 py-2 text-xs font-semibold text-[#0B3B2E] hover:bg-[#FAF8F4]"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {group.status === 'COMPLETED' ? 'Reopen' : 'Mark Completed'}
+            </button>
+            {group.payments.length === 0 ? (
+              <button
+                onClick={() => {
+                  setManageError(null);
+                  setConfirmDeleteChit(true);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Delete Chit
+              </button>
+            ) : (
+              <button
+                disabled
+                title="Payments exist — mark the chit COMPLETED instead"
+                className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-xl border border-[#0B3B2E]/12 bg-[#FAF8F4] px-3 py-2 text-xs font-semibold text-[#55655E]/60"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Delete Chit
+              </button>
+            )}
+          </div>
         )}
         {isOrganizer && (
           <div className="flex items-center gap-2">
@@ -383,6 +500,7 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3 text-right">Month {collectionMonth} Payable</th>
                     <th className="px-4 py-3 text-center">Collection & Signature</th>
+                    {isOrganizer && <th className="px-4 py-3 text-right">Manage</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#0B3B2E]/10">
@@ -492,6 +610,43 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
                               </div>
                             )}
                           </td>
+                          {isOrganizer && (
+                            <td className="px-4 py-3">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={() => setEditSlot(slot)}
+                                  title="Edit subscriber / ticket"
+                                  className="rounded-lg border border-[#0B3B2E]/20 p-1.5 text-[#0B3B2E] hover:bg-[#FAF8F4]"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => setResetPinSlot(slot)}
+                                  title="Reset member PIN"
+                                  className="rounded-lg border border-[#0B3B2E]/20 p-1.5 text-[#0B3B2E] hover:bg-[#FAF8F4]"
+                                >
+                                  <KeyRound className="h-3.5 w-3.5" />
+                                </button>
+                                {group.payments.some((p) => p.memberSlotId === slot.id) ? (
+                                  <button
+                                    disabled
+                                    title="Ticket has payments — it cannot be removed"
+                                    className="cursor-not-allowed rounded-lg border border-[#0B3B2E]/12 p-1.5 text-[#55655E]/50"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => setConfirmRemoveSlot(slot)}
+                                    title="Remove ticket"
+                                    className="rounded-lg border border-red-300 p-1.5 text-red-700 hover:bg-red-50"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          )}
                         </tr>
                       );
                     })}
@@ -499,6 +654,104 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
               </table>
             </div>
           </div>
+
+          {/* Payments ledger (organizer only): edit or void any receipt */}
+          {isOrganizer && group.payments.length > 0 && (
+            <div className="overflow-hidden rounded-2xl border border-[#0B3B2E]/15 bg-white">
+              <div className="border-b border-[#0B3B2E]/10 px-4 py-3">
+                <h3 className="text-sm font-bold text-[#14201C]">Payments Ledger</h3>
+                <p className="text-xs text-[#55655E]">
+                  Update a receipt or void it with a reason. Every change is written to the audit trail.
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[860px] text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-[#0B3B2E]/15 bg-[#FAF8F4] text-[11px] font-bold tracking-wider text-[#55655E] uppercase">
+                      <th className="px-4 py-3">Receipt</th>
+                      <th className="px-4 py-3">Month</th>
+                      <th className="px-4 py-3">Subscriber</th>
+                      <th className="px-4 py-3 text-right">Amount</th>
+                      <th className="px-4 py-3">Date</th>
+                      <th className="px-4 py-3">Method</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#0B3B2E]/10">
+                    {group.payments.map((p) => {
+                      const isVoid = (p.status ?? 'POSTED') === 'VOID';
+                      return (
+                        <tr key={p.id} className={isVoid ? 'bg-red-50/40' : 'hover:bg-[#FAF8F4]/75'}>
+                          <td className="px-4 py-2.5">
+                            <button
+                              onClick={() => onOpenReceipt(p)}
+                              className="font-semibold text-[#0B3B2E] tabular-nums underline-offset-2 hover:underline"
+                            >
+                              {p.receiptNumber}
+                            </button>
+                            {isVoid && p.voidReason && (
+                              <p className="mt-0.5 text-[11px] text-red-800">Reason: {p.voidReason}</p>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5 tabular-nums">M{p.monthNumber}</td>
+                          <td className="px-4 py-2.5">
+                            {p.memberName} <span className="text-xs text-[#55655E]">· #{p.ticketNumber}</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-bold tabular-nums text-[#14201C]">
+                            {formatPassbookAmount(p.amountPaid)}
+                          </td>
+                          <td className="px-4 py-2.5 text-xs text-[#55655E]">{formatIndianDate(p.paidDate)}</td>
+                          <td className="px-4 py-2.5 text-xs text-[#55655E]">{p.paymentMethod}</td>
+                          <td className="px-4 py-2.5">
+                            {isVoid ? (
+                              <span className="inline-flex rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-bold text-red-800">
+                                VOID
+                              </span>
+                            ) : (
+                              <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-800">
+                                POSTED
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {isVoid ? (
+                                <button
+                                  disabled
+                                  title="A voided payment cannot be edited"
+                                  className="cursor-not-allowed rounded-lg border border-[#0B3B2E]/12 p-1.5 text-[#55655E]/50"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => setEditPayment(p)}
+                                    title="Edit payment"
+                                    className="rounded-lg border border-[#0B3B2E]/20 p-1.5 text-[#0B3B2E] hover:bg-[#FAF8F4]"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => setVoidPayment(p)}
+                                    title="Void payment"
+                                    className="rounded-lg border border-red-300 p-1.5 text-red-700 hover:bg-red-50"
+                                  >
+                                    <Ban className="h-3.5 w-3.5" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -700,7 +953,7 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
 
       {/* TAB 4: LIFT ROI CALCULATOR */}
       {activeTab === 'calculator' && (
-        <LiftCalculator userId={currentUser.id} lockedGroup={group} />
+        <LiftCalculator lockedGroup={group} />
       )}
 
       {/* RECORD PAYMENT MODAL */}
@@ -913,6 +1166,104 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
             </div>
           </form>
         </div>
+      )}
+
+      {/* MANAGEMENT MODALS */}
+      {showEditChit && group && (
+        <EditChitModal
+          group={group}
+          onClose={() => setShowEditChit(false)}
+          onSaved={async () => {
+            setShowEditChit(false);
+            await loadDetail();
+            onDataChanged();
+          }}
+        />
+      )}
+      {editSlot && group && (
+        <EditMemberModal
+          group={group}
+          slot={editSlot}
+          onClose={() => setEditSlot(null)}
+          onSaved={async () => {
+            setEditSlot(null);
+            await loadDetail();
+            onDataChanged();
+          }}
+        />
+      )}
+      {resetPinSlot && (
+        <ResetPinModal
+          memberId={resetPinSlot.userId}
+          memberName={resetPinSlot.memberName}
+          onClose={() => setResetPinSlot(null)}
+          onSaved={() => {
+            setResetPinSlot(null);
+            setManageError(null);
+          }}
+        />
+      )}
+      {editPayment && (
+        <EditPaymentModal
+          payment={editPayment}
+          onClose={() => setEditPayment(null)}
+          onSaved={async () => {
+            setEditPayment(null);
+            await loadDetail();
+            onDataChanged();
+          }}
+        />
+      )}
+      {voidPayment && (
+        <VoidPaymentModal
+          payment={voidPayment}
+          onClose={() => setVoidPayment(null)}
+          onVoided={async () => {
+            setVoidPayment(null);
+            await loadDetail();
+            onDataChanged();
+          }}
+        />
+      )}
+      {confirmDeleteChit && group && (
+        <ConfirmModal
+          title={`Delete ${group.name}?`}
+          message={
+            <>
+              This permanently removes <strong>{group.code}</strong>, its schedule and its enrolled
+              tickets. This cannot be undone.
+            </>
+          }
+          confirmLabel="Delete Chit"
+          danger
+          busy={manageBusy}
+          error={manageError}
+          onConfirm={handleDeleteChit}
+          onClose={() => {
+            setConfirmDeleteChit(false);
+            setManageError(null);
+          }}
+        />
+      )}
+      {confirmRemoveSlot && (
+        <ConfirmModal
+          title={`Remove Ticket #${confirmRemoveSlot.ticketNumber}?`}
+          message={
+            <>
+              This removes <strong>{confirmRemoveSlot.memberName}</strong>'s ticket from this chit.
+              The subscriber account stays available for future enrollment.
+            </>
+          }
+          confirmLabel="Remove Ticket"
+          danger
+          busy={manageBusy}
+          error={manageError}
+          onConfirm={handleRemoveSlot}
+          onClose={() => {
+            setConfirmRemoveSlot(null);
+            setManageError(null);
+          }}
+        />
       )}
     </div>
   );

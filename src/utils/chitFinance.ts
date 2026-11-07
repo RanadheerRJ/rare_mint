@@ -310,3 +310,53 @@ export function addMonthsToDate(startDateStr: string, monthsToAdd: number, dueDa
   const dd = String(clampedDay).padStart(2, '0');
   return `${targetYear}-${mm}-${dd}`;
 }
+
+export interface AuctionLiftInput {
+  faceValue: number;
+  totalSlots: number;
+  baseInstallment: number;
+  /** Foreman commission percentage, e.g. 5 for 5%. */
+  foremanCommissionPct: number;
+  /** Winning bid discount (>= commission). Defaults to the commission. */
+  bidDiscount?: number;
+}
+
+export interface AuctionLiftResult {
+  foremanCommission: number;
+  bidDiscount: number;
+  dividendPool: number;
+  dividendPerMember: number;
+  netInstallment: number;
+  winnerPayout: number;
+}
+
+/**
+ * Pure auction-chit lift math: foreman commission, bid discount, monthly
+ * dividend per member, net installment and winner payout.
+ */
+export function computeAuctionLift(input: AuctionLiftInput): AuctionLiftResult {
+  const commission = Math.round((input.faceValue * input.foremanCommissionPct) / 100);
+  const bidDiscount = Math.max(commission, Math.round(input.bidDiscount ?? commission));
+  const dividendPool = Math.max(0, bidDiscount - commission);
+  const dividendPerMember = input.totalSlots > 0 ? Math.round(dividendPool / input.totalSlots) : 0;
+  const netInstallment = Math.max(0, input.baseInstallment - dividendPerMember);
+  const winnerPayout = Math.max(0, input.faceValue - bidDiscount);
+  return {
+    foremanCommission: commission,
+    bidDiscount,
+    dividendPool,
+    dividendPerMember,
+    netInstallment,
+    winnerPayout,
+  };
+}
+
+/**
+ * Formats the next receipt number from a global sequence value and the payment
+ * date. The year comes from the date (never hardcoded); uniqueness comes from
+ * the transaction-scoped sequence.
+ */
+export function formatReceiptNumber(sequenceValue: number, paidDate: string): string {
+  const year = /^\d{4}/.test(paidDate) ? paidDate.slice(0, 4) : String(new Date().getFullYear());
+  return `RM-${year}-${String(sequenceValue).padStart(5, '0')}`;
+}

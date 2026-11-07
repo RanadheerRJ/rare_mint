@@ -1,4 +1,4 @@
-export type UserRole = 'organizer' | 'member';
+export type UserRole = 'developer' | 'organizer' | 'member';
 
 export type ChitType = 'FIXED_TABLE' | 'AUCTION';
 
@@ -11,6 +11,18 @@ export interface User {
   role: UserRole;
   city: string;
   createdAt: string;
+  isActive: boolean;
+}
+
+/** Developer-dashboard row: an invited chit owner with account state. */
+export interface OwnerSummary extends User {
+  chitCount: number;
+}
+
+export interface PlatformStats {
+  owners: number;
+  chits: number;
+  members: number;
 }
 
 export interface ScheduleRow {
@@ -64,6 +76,9 @@ export interface PaymentRecord {
   referenceNote: string;
   signedByName: string;
   signatureHash: string;
+  status: 'POSTED' | 'VOID';
+  voidReason: string;
+  voidedAt: string | null;
   createdAt: string;
 }
 

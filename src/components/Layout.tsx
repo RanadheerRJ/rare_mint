@@ -112,17 +112,19 @@ export const Layout: React.FC<LayoutProps> = ({
     label: string;
     icon: typeof LayoutDashboard;
     badge?: number;
-  }> = [
-    { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-    { id: 'groups', label: 'Passbooks', icon: BookOpen },
-    { id: 'calculator', label: 'Lift ROI', icon: Calculator },
-    {
-      id: 'dues',
-      label: 'Dues & Receipts',
-      icon: FileCheck2,
-      badge: dueBadgeCount > 0 ? dueBadgeCount : undefined,
-    },
-  ];
+  }> = user.role === 'developer'
+    ? [{ id: 'overview', label: 'Platform Admin', icon: LayoutDashboard }]
+    : [
+        { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+        { id: 'groups', label: 'Passbooks', icon: BookOpen },
+        { id: 'calculator', label: 'Lift ROI', icon: Calculator },
+        {
+          id: 'dues',
+          label: 'Dues & Receipts',
+          icon: FileCheck2,
+          badge: dueBadgeCount > 0 ? dueBadgeCount : undefined,
+        },
+      ];
 
   return (
     <div className="min-h-screen bg-[#FAF8F4] text-[#14201C] flex flex-col lg:flex-row">
@@ -194,15 +196,19 @@ export const Layout: React.FC<LayoutProps> = ({
           <div className="rounded-xl bg-white/8 p-3">
             <p className="text-xs font-bold text-white">{user.name}</p>
             <p className="text-[11px] text-white/70 capitalize">
-              {user.role === 'organizer' ? 'Organizer / Foreman' : 'Chit Subscriber'} · +91{' '}
-              {user.phone}
+              {user.role === 'organizer'
+                ? 'Organizer / Foreman'
+                : user.role === 'developer'
+                  ? 'Platform Developer'
+                  : 'Chit Subscriber'}{' '}
+              · +91 {user.phone}
             </p>
             <button
               onClick={onLogout}
               className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[#F2CA6B] hover:underline"
             >
               <LogOut className="h-3.5 w-3.5" />
-              Sign In / Register Screen
+              Sign Out
             </button>
           </div>
         </div>
@@ -267,7 +273,7 @@ export const Layout: React.FC<LayoutProps> = ({
               <button
                 onClick={onLogout}
                 className="lg:hidden rounded-lg border border-[#0B3B2E]/20 bg-white p-1.5 text-[#55655E]"
-                title="Sign In / Register Screen"
+                title="Sign Out"
               >
                 <LogOut className="h-4 w-4" />
               </button>
