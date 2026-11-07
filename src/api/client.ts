@@ -60,6 +60,24 @@ try {
   sessionToken = null;
 }
 
+/** Acting user; static-mode ledger calls are scoped by it (server mode uses the session token). */
+let actingUser: User | null = null;
+
+/** Records who is signed in — required for the static ledger's per-user scoping. */
+export function setActingUser(user: User | null): void {
+  actingUser = user;
+}
+
+function requireActingUser(): User {
+  if (!actingUser) throw new HttpError('Sign in required.', 401);
+  return actingUser;
+}
+
+/** Error for actions the browser ledger does not implement (they need the server). */
+function serverOnlyError(action: string): Error {
+  return new Error(`${action} needs the Rare Mint server.`);
+}
+
 export function getSessionToken(): string | null {
   return sessionToken;
 }
@@ -103,6 +121,7 @@ function genericErrorFor(status: number): string {
   if (status === 403) return 'You do not have permission to do this.';
   if (status === 404) return 'Not found.';
   if (status === 413) return 'The request was too large.';
+  if (status === 405) return `This action needs the Rare Mint server (HTTP ${status}).`;
   if (status === 409 || status === 422) return 'This change conflicts with the current data.';
   // The status code is included so a proxy/gateway failure (502/503/504) can be
   // told apart from an application crash (500) when reporting the problem.
@@ -188,15 +207,21 @@ async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
 export const api = {
   getStorageMode,
   clearApiCache,
+  setActingUser,
 
   login: async (phone: string, pin: string): Promise<{ user: User }> => {
-    if ((await getStorageMode()) === 'static') return localStore.login(phone, pin);
+    if ((await getStorageMode()) === 'static') {
+      const result = localStore.login(phone, pin);
+      actingUser = result.user;
+      return result;
+    }
     const result = await requestJson<{ token: string; user: User }>('./api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ phone, pin }),
     });
     clearApiCache();
     setSessionToken(result.token);
+    actingUser = result.user;
     return { user: result.user };
   },
 
@@ -209,6 +234,7 @@ export const api = {
       // Logout is best-effort; clear local state regardless.
     } finally {
       setSessionToken(null);
+      actingUser = null;
       clearApiCache();
     }
   },
@@ -218,11 +244,14 @@ export const api = {
     if ((await getStorageMode()) !== 'server') return null;
     if (!sessionToken) return null;
     try {
-      return await requestJson<{ user: User }>('./api/auth/me');
+      const result = await requestJson<{ user: User }>('./api/auth/me');
+      actingUser = result.user;
+      return result;
     } catch (err) {
       // Only a rejected session signs the user out; offline keeps the session.
       if (err instanceof HttpError && (err.status === 401 || err.status === 403)) {
         setSessionToken(null);
+        actingUser = null;
         return null;
       }
       return null;
@@ -243,7 +272,9 @@ export const api = {
     if ((await getStorageMode()) !== 'static') {
       throw new Error('Self-registration is disabled. Ask the platform developer for an owner invite.');
     }
-    return localStore.register(payload);
+    const result = localStore.register(payload);
+    actingUser = result.user;
+    return result;
   },
 
   /** Demo-mode check for static builds. */
@@ -251,68 +282,92 @@ export const api = {
 
   // ------------------------------------------------------------- developer
 
-  devListOwners: async (): Promise<{ owners: OwnerSummary[] }> =>
-    requestJson<{ owners: OwnerSummary[] }>('./api/dev/owners'),
+  devListOwners: async (): Promise<{ owners: OwnerSummary[] }> => {
+    if ((await getStorageMode()) === 'static') throw serverOnlyError('The developer console');
+    return requestJson<{ owners: OwnerSummary[] }>('./api/dev/owners');
+  },
 
   devInviteOwner: async (payload: {
     name: string;
     phone: string;
     pin: string;
     city: string;
-  }): Promise<{ owner: OwnerSummary }> =>
-    requestJson<{ owner: OwnerSummary }>('./api/dev/owners', {
+  }): Promise<{ owner: OwnerSummary }> => {
+    if ((await getStorageMode()) === 'static') throw serverOnlyError('The developer console');
+    return requestJson<{ owner: OwnerSummary }>('./api/dev/owners', {
       method: 'POST',
       body: JSON.stringify(payload),
-    }),
+    });
+  },
 
   devUpdateOwner: async (
     ownerId: number,
     payload: { name?: string; city?: string; isActive?: boolean }
-  ): Promise<{ owner: OwnerSummary }> =>
-    requestJson<{ owner: OwnerSummary }>(`./api/dev/owners/${ownerId}`, {
+  ): Promise<{ owner: OwnerSummary }> => {
+    if ((await getStorageMode()) === 'static') throw serverOnlyError('The developer console');
+    return requestJson<{ owner: OwnerSummary }>(`./api/dev/owners/${ownerId}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
-    }),
+    });
+  },
 
-  devResetOwnerPin: async (ownerId: number, pin: string): Promise<{ ok: boolean }> =>
-    requestJson<{ ok: boolean }>(`./api/dev/owners/${ownerId}/reset-pin`, {
+  devResetOwnerPin: async (ownerId: number, pin: string): Promise<{ ok: boolean }> => {
+    if ((await getStorageMode()) === 'static') throw serverOnlyError('The developer console');
+    return requestJson<{ ok: boolean }>(`./api/dev/owners/${ownerId}/reset-pin`, {
       method: 'POST',
       body: JSON.stringify({ pin }),
-    }),
+    });
+  },
 
-  devDeleteOwner: async (ownerId: number): Promise<{ ok: boolean }> =>
-    requestJson<{ ok: boolean }>(`./api/dev/owners/${ownerId}`, { method: 'DELETE' }),
+  devDeleteOwner: async (ownerId: number): Promise<{ ok: boolean }> => {
+    if ((await getStorageMode()) === 'static') throw serverOnlyError('The developer console');
+    return requestJson<{ ok: boolean }>(`./api/dev/owners/${ownerId}`, { method: 'DELETE' });
+  },
 
-  devStats: async (): Promise<{ stats: PlatformStats }> =>
-    requestJson<{ stats: PlatformStats }>('./api/dev/stats'),
+  devStats: async (): Promise<{ stats: PlatformStats }> => {
+    if ((await getStorageMode()) === 'static') throw serverOnlyError('The developer console');
+    return requestJson<{ stats: PlatformStats }>('./api/dev/stats');
+  },
 
   // ------------------------------------------------------------- members
 
-  getMembers: async (): Promise<{ members: User[] }> =>
-    requestJson<{ members: User[] }>('./api/users/members'),
+  getMembers: async (): Promise<{ members: User[] }> => {
+    if ((await getStorageMode()) === 'static') return localStore.getMembers();
+    return requestJson<{ members: User[] }>('./api/users/members');
+  },
 
   updateMember: async (
     memberId: number,
     payload: { name?: string; city?: string; phone?: string }
-  ): Promise<{ member: User }> =>
-    requestJson<{ member: User }>(`./api/members/${memberId}`, {
+  ): Promise<{ member: User }> => {
+    if ((await getStorageMode()) === 'static') throw serverOnlyError('Editing members');
+    return requestJson<{ member: User }>(`./api/members/${memberId}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
-    }),
+    });
+  },
 
-  resetMemberPin: async (memberId: number, pin: string): Promise<{ ok: boolean }> =>
-    requestJson<{ ok: boolean }>(`./api/members/${memberId}/reset-pin`, {
+  resetMemberPin: async (memberId: number, pin: string): Promise<{ ok: boolean }> => {
+    if ((await getStorageMode()) === 'static') throw serverOnlyError('Resetting member PINs');
+    return requestJson<{ ok: boolean }>(`./api/members/${memberId}/reset-pin`, {
       method: 'POST',
       body: JSON.stringify({ pin }),
-    }),
+    });
+  },
 
   // ------------------------------------------------------------- chits
 
-  getChits: async (): Promise<{ groups: ChitGroupSummary[]; today: string }> =>
-    requestJson<{ groups: ChitGroupSummary[]; today: string }>('./api/chits'),
+  getChits: async (): Promise<{ groups: ChitGroupSummary[]; today: string }> => {
+    if ((await getStorageMode()) === 'static') return localStore.getChits(requireActingUser().id);
+    return requestJson<{ groups: ChitGroupSummary[]; today: string }>('./api/chits');
+  },
 
-  getChitDetail: async (groupId: number): Promise<{ group: ChitGroupDetail }> =>
-    requestJson<{ group: ChitGroupDetail }>(`./api/chits/${groupId}`),
+  getChitDetail: async (groupId: number): Promise<{ group: ChitGroupDetail }> => {
+    if ((await getStorageMode()) === 'static') {
+      return localStore.getChitDetail(groupId, requireActingUser().id);
+    }
+    return requestJson<{ group: ChitGroupDetail }>(`./api/chits/${groupId}`);
+  },
 
   createChit: async (payload: {
     name: string;
@@ -332,11 +387,15 @@ export const api = {
       chitValue: number;
       prizedInstallment: number;
     }>;
-  }): Promise<{ group: ChitGroupSummary }> =>
-    requestJson<{ group: ChitGroupSummary }>('./api/chits', {
+  }): Promise<{ group: ChitGroupSummary }> => {
+    if ((await getStorageMode()) === 'static') {
+      return localStore.createChit({ ...payload, organizerId: requireActingUser().id });
+    }
+    return requestJson<{ group: ChitGroupSummary }>('./api/chits', {
       method: 'POST',
       body: JSON.stringify(payload),
-    }),
+    });
+  },
 
   updateChit: async (
     groupId: number,
@@ -352,14 +411,18 @@ export const api = {
       chitType?: ChitType;
       status?: 'ACTIVE' | 'COMPLETED';
     }
-  ): Promise<{ group: ChitGroupSummary }> =>
-    requestJson<{ group: ChitGroupSummary }>(`./api/chits/${groupId}`, {
+  ): Promise<{ group: ChitGroupSummary }> => {
+    if ((await getStorageMode()) === 'static') throw serverOnlyError('Editing a chit');
+    return requestJson<{ group: ChitGroupSummary }>(`./api/chits/${groupId}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
-    }),
+    });
+  },
 
-  deleteChit: async (groupId: number): Promise<{ ok: boolean }> =>
-    requestJson<{ ok: boolean }>(`./api/chits/${groupId}`, { method: 'DELETE' }),
+  deleteChit: async (groupId: number): Promise<{ ok: boolean }> => {
+    if ((await getStorageMode()) === 'static') throw serverOnlyError('Deleting a chit');
+    return requestJson<{ ok: boolean }>(`./api/chits/${groupId}`, { method: 'DELETE' });
+  },
 
   enrollSlot: async (
     groupId: number,
@@ -371,11 +434,18 @@ export const api = {
       newMemberPhone?: string;
       newMemberCity?: string;
     }
-  ): Promise<{ slot: MemberSlot }> =>
-    requestJson<{ slot: MemberSlot }>(`./api/chits/${groupId}/slots`, {
+  ): Promise<{ slot: MemberSlot }> => {
+    if ((await getStorageMode()) === 'static') {
+      return localStore.enrollSlot(groupId, {
+        ...payload,
+        organizerId: requireActingUser().id,
+      });
+    }
+    return requestJson<{ slot: MemberSlot }>(`./api/chits/${groupId}/slots`, {
       method: 'POST',
       body: JSON.stringify(payload),
-    }),
+    });
+  },
 
   updateSlot: async (
     groupId: number,
@@ -386,14 +456,18 @@ export const api = {
       phone?: string;
       ticketNumber?: number;
     }
-  ): Promise<{ slot: MemberSlot }> =>
-    requestJson<{ slot: MemberSlot }>(`./api/chits/${groupId}/slots/${slotId}`, {
+  ): Promise<{ slot: MemberSlot }> => {
+    if ((await getStorageMode()) === 'static') throw serverOnlyError('Editing a ticket');
+    return requestJson<{ slot: MemberSlot }>(`./api/chits/${groupId}/slots/${slotId}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
-    }),
+    });
+  },
 
-  removeSlot: async (groupId: number, slotId: number): Promise<{ ok: boolean }> =>
-    requestJson<{ ok: boolean }>(`./api/chits/${groupId}/slots/${slotId}`, { method: 'DELETE' }),
+  removeSlot: async (groupId: number, slotId: number): Promise<{ ok: boolean }> => {
+    if ((await getStorageMode()) === 'static') throw serverOnlyError('Removing a ticket');
+    return requestJson<{ ok: boolean }>(`./api/chits/${groupId}/slots/${slotId}`, { method: 'DELETE' });
+  },
 
   // ------------------------------------------------------------- payments
 
@@ -408,11 +482,13 @@ export const api = {
       referenceNote?: string;
       signedByName?: string;
     }
-  ): Promise<{ payment: PaymentRecord }> =>
-    requestJson<{ payment: PaymentRecord }>(`./api/chits/${groupId}/payments`, {
+  ): Promise<{ payment: PaymentRecord }> => {
+    if ((await getStorageMode()) === 'static') return localStore.recordPayment(groupId, payload);
+    return requestJson<{ payment: PaymentRecord }>(`./api/chits/${groupId}/payments`, {
       method: 'POST',
       body: JSON.stringify(payload),
-    }),
+    });
+  },
 
   updatePayment: async (
     groupId: number,
@@ -423,17 +499,21 @@ export const api = {
       paymentMethod?: PaymentMethod;
       referenceNote?: string;
     }
-  ): Promise<{ payment: PaymentRecord }> =>
-    requestJson<{ payment: PaymentRecord }>(`./api/chits/${groupId}/payments/${paymentId}`, {
+  ): Promise<{ payment: PaymentRecord }> => {
+    if ((await getStorageMode()) === 'static') throw serverOnlyError('Editing payments');
+    return requestJson<{ payment: PaymentRecord }>(`./api/chits/${groupId}/payments/${paymentId}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
-    }),
+    });
+  },
 
-  voidPayment: async (groupId: number, paymentId: number, reason: string): Promise<{ payment: PaymentRecord }> =>
-    requestJson<{ payment: PaymentRecord }>(`./api/chits/${groupId}/payments/${paymentId}`, {
+  voidPayment: async (groupId: number, paymentId: number, reason: string): Promise<{ payment: PaymentRecord }> => {
+    if ((await getStorageMode()) === 'static') throw serverOnlyError('Voiding payments');
+    return requestJson<{ payment: PaymentRecord }>(`./api/chits/${groupId}/payments/${paymentId}`, {
       method: 'DELETE',
       body: JSON.stringify({ reason }),
-    }),
+    });
+  },
 
   // ------------------------------------------------------------- lift & cycle
 
@@ -446,28 +526,38 @@ export const api = {
       payoutDate?: string;
       payoutReference?: string;
     }
-  ): Promise<{ ok: boolean }> =>
-    requestJson<{ ok: boolean }>(`./api/chits/${groupId}/lift`, {
+  ): Promise<{ ok: boolean }> => {
+    if ((await getStorageMode()) === 'static') return localStore.recordLift(groupId, payload);
+    return requestJson<{ ok: boolean }>(`./api/chits/${groupId}/lift`, {
       method: 'POST',
       body: JSON.stringify(payload),
-    }),
+    });
+  },
 
   setCurrentMonth: async (
     groupId: number,
     currentMonth: number
-  ): Promise<{ ok: boolean; currentMonth: number }> =>
-    requestJson<{ ok: boolean; currentMonth: number }>(`./api/chits/${groupId}/current-month`, {
+  ): Promise<{ ok: boolean; currentMonth: number }> => {
+    if ((await getStorageMode()) === 'static') {
+      return localStore.setCurrentMonth(groupId, currentMonth);
+    }
+    return requestJson<{ ok: boolean; currentMonth: number }>(`./api/chits/${groupId}/current-month`, {
       method: 'POST',
       body: JSON.stringify({ currentMonth }),
-    }),
+    });
+  },
 
   // ------------------------------------------------------------- dues & receipts
 
-  getDues: async (): Promise<{ dues: DueItem[]; today: string }> =>
-    requestJson<{ dues: DueItem[]; today: string }>('./api/dues'),
+  getDues: async (): Promise<{ dues: DueItem[]; today: string }> => {
+    if ((await getStorageMode()) === 'static') return localStore.getDues(requireActingUser().id);
+    return requestJson<{ dues: DueItem[]; today: string }>('./api/dues');
+  },
 
-  getReceipts: async (): Promise<{ receipts: PaymentRecord[] }> =>
-    requestJson<{ receipts: PaymentRecord[] }>('./api/receipts'),
+  getReceipts: async (): Promise<{ receipts: PaymentRecord[] }> => {
+    if ((await getStorageMode()) === 'static') return localStore.getReceipts(requireActingUser().id);
+    return requestJson<{ receipts: PaymentRecord[] }>('./api/receipts');
+  },
 
   exportBackupJson: () => localStore.exportBackupJson(),
   importBackupJson: (raw: string) => localStore.importBackupJson(raw),

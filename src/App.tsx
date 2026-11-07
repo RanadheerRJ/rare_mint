@@ -86,6 +86,12 @@ export const App: React.FC = () => {
     handleSetUser(null);
   };
 
+  // Keep the API layer's acting user in sync (static ledger calls are scoped by it).
+  // Must run before any effect that loads data.
+  useEffect(() => {
+    api.setActingUser(user);
+  }, [user]);
+
   // Validate the stored session against the server when one exists.
   useEffect(() => {
     let cancelled = false;

@@ -71,6 +71,7 @@ Existing SQLite databases are migrated automatically on startup (one-time): plai
 | Message | What it means |
 | --- | --- |
 | `Cannot reach the Rare Mint server…` | The Node server is not running or unreachable — start it with `npm run dev` (or `npm start`). |
+| `This action needs the Rare Mint server…` | You are on the static build (e.g. GitHub Pages) and this action is not implemented in the browser ledger (editing, voiding, PIN resets, developer console). |
 | `…unexpected error… (HTTP 500)` | The server process hit an unexpected error. The exact cause is printed in the terminal running the server (and shown in the app when started with `npm run dev`) — e.g. `database is locked` (a second server process is using `data/`) or `disk is full`. |
 | `…unexpected error… (HTTP 502/503/504)` | A proxy or gateway in front of the server could not reach it — the server is down or restarting. |
 
@@ -85,7 +86,7 @@ localStorage.setItem('rm_demo_mode', '1');   // gate for static-mode registratio
 location.reload();
 ```
 
-With demo mode on, the local ledger accepts registration through the demo/test tooling (`localStore.register(...)`, enabled by the flag). You can also bring accounts over from a server install by exporting a JSON backup there and using **Export / Restore Ledger** in static mode — backups carry users along with the ledger. The browser ledger keeps the old one-payment-per-month rule; partial payments need the server. Do not use static mode for real financial data.
+With demo mode on, the local ledger accepts registration through the demo/test tooling (`localStore.register(...)`, enabled by the flag). You can also bring accounts over from a server install by exporting a JSON backup there and using **Export / Restore Ledger** in static mode — backups carry users along with the ledger. In the browser ledger you can create chits, enroll tickets, collect payments, record lifts and read dues/receipts; editing or voiding existing records, member PIN resets and the developer console need the server. The browser ledger keeps the old one-payment-per-month rule; partial payments need the server. Do not use static mode for real financial data.
 
 ## Loading app updates
 
