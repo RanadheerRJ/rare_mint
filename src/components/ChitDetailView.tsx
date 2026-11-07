@@ -67,15 +67,22 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
   const [selectedSlotId, setSelectedSlotId] = useState<number | null>(null);
   const [collectionMonth, setCollectionMonth] = useState<number>(1);
 
-  // Payment modal state
+  // Payment modal state (`amount` is the outstanding prefill; the form accepts a
+  // smaller partial payment with the balance collected later)
   const [payModal, setPayModal] = useState<{
     slot: MemberSlot;
     monthNumber: number;
     amount: number;
   } | null>(null);
+  const [payAmount, setPayAmount] = useState(0);
   const [payMethod, setPayMethod] = useState<PaymentMethod>('UPI');
   const [payRef, setPayRef] = useState('');
   const [payBusy, setPayBusy] = useState(false);
+
+  const openPayModal = (slot: MemberSlot, monthNumber: number, amount: number) => {
+    setPayModal({ slot, monthNumber, amount });
+    setPayAmount(amount);
+  };
 
   // Enroll modal state
   const [showEnrollModal, setShowEnrollModal] = useState(false);
@@ -158,12 +165,17 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
   const handleConfirmPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!group || !payModal) return;
+    const maxAmount = payModal.amount;
+    if (!Number.isInteger(payAmount) || payAmount < 1 || payAmount > maxAmount) {
+      alert(`Enter an amount between 1 and ${maxAmount}.`);
+      return;
+    }
     setPayBusy(true);
     try {
       const { payment } = await api.recordPayment(group.id, {
         memberSlotId: payModal.slot.id,
         monthNumber: payModal.monthNumber,
-        amountPaid: payModal.amount,
+        amountPaid: payAmount,
         paymentMethod: payMethod,
         referenceNote: payRef || (payMethod === 'UPI' ? 'Instant UPI Verified' : 'Desk Collection'),
         signedByName: group.organizerName,
@@ -294,11 +306,15 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
   // Compute collection stats for `collectionMonth`
   const activeSchedRow =
     group.schedule.find((r) => r.monthNumber === collectionMonth) || group.schedule[0];
-  const paymentsInMonth = new Map<number, PaymentRecord>();
+  // A month can carry several POSTED receipts (partial payments); voided ones
+  // do not count towards the collected sum.
+  const paymentsInMonth = new Map<number, PaymentRecord[]>();
   for (const p of group.payments) {
-    if (p.monthNumber === collectionMonth) {
-      paymentsInMonth.set(p.memberSlotId, p);
-    }
+    if (p.monthNumber !== collectionMonth) continue;
+    if ((p.status ?? 'POSTED') !== 'POSTED') continue;
+    const list = paymentsInMonth.get(p.memberSlotId) ?? [];
+    list.push(p);
+    paymentsInMonth.set(p.memberSlotId, list);
   }
 
   const takenTickets = new Set(group.slots.map((s) => s.ticketNumber));
@@ -450,7 +466,7 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
           onOpenReceipt={onOpenReceipt}
           onQuickRecordPayment={(slot, monthNum, expected) => {
             if (!isOrganizer && slot.userId !== currentUser.id) return;
-            setPayModal({ slot, monthNumber: monthNum, amount: expected });
+            openPayModal(slot, monthNum, expected);
           }}
         />
       )}
@@ -512,7 +528,10 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
                         activeSchedRow,
                         slot.prizedMonth
                       );
-                      const paidRec = paymentsInMonth.get(slot.id);
+                      const paidRecs = paymentsInMonth.get(slot.id) ?? [];
+                      const paidSum = paidRecs.reduce((s, p) => s + p.amountPaid, 0);
+                      const outstanding = Math.max(0, expected - paidSum);
+                      const isFullyPaid = paidRecs.length > 0 && paidSum >= expected;
                       const isPrizedAlready =
                         slot.prizedMonth !== null && slot.prizedMonth < collectionMonth;
 
@@ -532,7 +551,7 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
                           memberName: slot.memberName,
                           memberPhone: slot.memberPhone,
                           isPrizedSubscriber: isPrizedAlready,
-                          amountDue: expected,
+                          amountDue: outstanding,
                           organizerName: group.organizerName,
                         })
                       );
@@ -573,28 +592,48 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
                             {formatPassbookAmount(expected)}
                           </td>
                           <td className="px-4 py-3 text-center">
-                            {paidRec ? (
-                              <button
-                                onClick={() => onOpenReceipt(paidRec)}
-                                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-700/25 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
-                              >
-                                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-700" />
-                                {paidRec.receiptNumber}
-                                <ChevronRight className="h-3.5 w-3.5" />
-                              </button>
+                            {isFullyPaid ? (
+                              <div className="flex flex-wrap items-center justify-center gap-1.5">
+                                {paidRecs.map((p) => (
+                                  <button
+                                    key={p.id}
+                                    onClick={() => onOpenReceipt(p)}
+                                    className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-700/25 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
+                                    title="View Signed Official Receipt"
+                                  >
+                                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-700" />
+                                    {p.receiptNumber}
+                                    <ChevronRight className="h-3.5 w-3.5" />
+                                  </button>
+                                ))}
+                              </div>
                             ) : (
-                              <div className="inline-flex items-center gap-2">
+                              <div className="inline-flex flex-wrap items-center justify-center gap-2">
+                                {paidRecs.length > 0 && (
+                                  <span
+                                    className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-900 tabular-nums"
+                                    title="Partial payment received — balance outstanding"
+                                  >
+                                    {formatPassbookAmount(paidSum)} / {formatPassbookAmount(expected)}
+                                  </span>
+                                )}
                                 <button
                                   onClick={() =>
-                                    setPayModal({
+                                    openPayModal(
                                       slot,
-                                      monthNumber: collectionMonth,
-                                      amount: expected,
-                                    })
+                                      collectionMonth,
+                                      paidRecs.length > 0 ? outstanding : expected
+                                    )
                                   }
                                   className="rounded-lg bg-[#0B3B2E] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#135341]"
                                 >
-                                  {isOrganizer ? 'Collect & Sign' : 'Pay Now'}
+                                  {isOrganizer
+                                    ? paidRecs.length > 0
+                                      ? 'Collect Balance'
+                                      : 'Collect & Sign'
+                                    : paidRecs.length > 0
+                                      ? 'Pay Balance'
+                                      : 'Pay Now'}
                                 </button>
                                 {isOrganizer && (
                                   <a
@@ -976,10 +1015,22 @@ export const ChitDetailView: React.FC<ChitDetailViewProps> = ({
               </p>
             </div>
 
-            <div className="rounded-xl bg-[#FAF8F4] p-4 text-center">
-              <span className="text-xs text-[#55655E]">Scheduled Installment Payable</span>
-              <p className="mt-0.5 text-2xl font-bold text-[#0B3B2E] tabular-nums">
-                {formatPassbookAmount(payModal.amount)}
+            <div className="rounded-xl bg-[#FAF8F4] p-4">
+              <label className="block text-xs font-semibold text-[#55655E]">
+                Amount Being Collected
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoFocus
+                value={String(payAmount)}
+                onChange={(e) => setPayAmount(Number(e.target.value.replace(/[^0-9]/g, '')))}
+                className="mt-1.5 w-full rounded-xl border border-[#0B3B2E]/20 bg-white px-3.5 py-2 text-2xl font-bold text-[#0B3B2E] tabular-nums focus:border-[#0B3B2E] focus:outline-none"
+              />
+              <p className="mt-1.5 text-xs text-[#55655E]">
+                Outstanding this month: <strong>{formatPassbookAmount(payModal.amount)}</strong>.
+                Enter a smaller amount to record a partial payment — the balance stays due and can
+                be collected later.
               </p>
             </div>
 
