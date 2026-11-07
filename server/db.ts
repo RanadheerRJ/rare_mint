@@ -1,5 +1,4 @@
 import { DatabaseSync } from 'node:sqlite';
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { LEGACY_DEMO_PHONES, isLegacyDemoUser } from '../src/utils/legacyDemo';
@@ -15,16 +14,6 @@ export const db = new DatabaseSync(DB_PATH);
 
 db.exec('PRAGMA journal_mode = WAL;');
 db.exec('PRAGMA foreign_keys = ON;');
-
-export function makeSignatureHash(receiptNo: string, slotId: number, month: number, amount: number): string {
-  const digest = crypto
-    .createHash('sha256')
-    .update(`${receiptNo}:${slotId}:${month}:${amount}:RAREMINT`)
-    .digest('hex')
-    .slice(0, 8)
-    .toUpperCase();
-  return `RM-SIG-${digest}`;
-}
 
 function columnNames(table: string): string[] {
   return (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name);

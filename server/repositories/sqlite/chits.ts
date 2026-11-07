@@ -58,6 +58,11 @@ export function createSqliteChitsRepository(db: Db): ChitsRepository {
       return row ? mapChit(row) : null;
     },
 
+    findByCode(code) {
+      const row = db.prepare('SELECT * FROM chit_groups WHERE code = ?').get(code) as Row | undefined;
+      return row ? mapChit(row) : null;
+    },
+
     listByOrganizer(organizerId) {
       const rows = db
         .prepare('SELECT * FROM chit_groups WHERE organizer_id = ? ORDER BY id ASC')

@@ -208,6 +208,7 @@ export interface ScheduleCreateRow {
 
 export interface ChitsRepository {
   findById(id: number): ChitGroupRow | null;
+  findByCode(code: string): ChitGroupRow | null;
   listByOrganizer(organizerId: number): ChitGroupRow[];
   listByMember(userId: number): ChitGroupRow[];
   insert(input: ChitCreateInput): ChitGroupRow;

@@ -19,6 +19,30 @@ const STORAGE_KEY = 'rm_static_ledger_v1';
 /** Version 2+ ledgers have been cleaned of the demo data seeded by early builds. */
 const LEDGER_VERSION = 2;
 
+/**
+ * Static/demo mode has no server, so the invite-only owner flow cannot work
+ * there. Public self-registration is disabled unless this explicit demo flag
+ * is set; the real invite-only features need the server.
+ */
+const DEMO_MODE_KEY = 'rm_demo_mode';
+
+export function isDemoModeEnabled(): boolean {
+  try {
+    return localStorage.getItem(DEMO_MODE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function setDemoModeEnabled(enabled: boolean): void {
+  try {
+    if (enabled) localStorage.setItem(DEMO_MODE_KEY, '1');
+    else localStorage.removeItem(DEMO_MODE_KEY);
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 interface StoredUser extends User {
   pin: string;
 }
@@ -133,6 +157,7 @@ function toPublicUser(u: StoredUser): User {
     role: u.role,
     city: u.city,
     createdAt: u.createdAt,
+    isActive: u.isActive ?? true,
   };
 }
 
@@ -223,6 +248,11 @@ export const localStore = {
     role: 'organizer' | 'member';
     city: string;
   }): { user: User } {
+    if (!isDemoModeEnabled()) {
+      throw new Error(
+        'Self-registration is disabled. Accounts are invite-only — ask the platform developer for an owner invite.'
+      );
+    }
     const state = readState();
     const cleanPhone = (payload.phone || '').replace(/\D/g, '').slice(-10);
     if (!payload.name?.trim() || cleanPhone.length !== 10 || !/^\d{4}$/.test(payload.pin || '')) {
@@ -240,6 +270,7 @@ export const localStore = {
       role: payload.role === 'organizer' ? 'organizer' : 'member',
       city: (payload.city || 'Hyderabad').trim(),
       createdAt: getTodayIST(),
+      isActive: true,
     };
     state.users.push(newUser);
     saveState(state);
@@ -429,6 +460,7 @@ export const localStore = {
           role: 'member',
           city: (payload.newMemberCity || 'Hyderabad').trim(),
           createdAt: getTodayIST(),
+          isActive: true,
         };
         state.users.push(targetUser);
       }
@@ -509,6 +541,9 @@ export const localStore = {
       paymentMethod: payload.paymentMethod || 'UPI',
       referenceNote: (payload.referenceNote || '').trim(),
       signedByName: signer,
+      status: 'POSTED',
+      voidReason: '',
+      voidedAt: null,
       signatureHash: computeSimpleSig(receiptNo, slot.id, Number(payload.monthNumber), finalAmount),
       createdAt: getTodayIST(),
     };
