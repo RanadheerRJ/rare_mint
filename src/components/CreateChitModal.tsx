@@ -17,16 +17,11 @@ const MIN_FACE_VALUE = 1000;
 const isValidMonths = (m: number) => Number.isInteger(m) && m >= MIN_MONTHS && m <= MAX_MONTHS;
 
 interface CreateChitModalProps {
-  organizerId: number;
   onClose: () => void;
   onCreated: (group: ChitGroupSummary) => void;
 }
 
-export const CreateChitModal: React.FC<CreateChitModalProps> = ({
-  organizerId,
-  onClose,
-  onCreated,
-}) => {
+export const CreateChitModal: React.FC<CreateChitModalProps> = ({ onClose, onCreated }) => {
   const defaultPreset = CHIT_PRESETS[0];
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
@@ -119,7 +114,6 @@ export const CreateChitModal: React.FC<CreateChitModalProps> = ({
         baseInstallment,
         foremanCommissionPct,
         maxBidPct: chitType === 'AUCTION' ? maxBidPct : 0,
-        organizerId,
         notes,
         schedule,
       });

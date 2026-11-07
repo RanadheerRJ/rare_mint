@@ -5,6 +5,7 @@ import { AuthScreen } from './components/AuthScreen';
 import { Layout, NavTab } from './components/Layout';
 import { OrganizerDashboard } from './components/OrganizerDashboard';
 import { MemberDashboard } from './components/MemberDashboard';
+import { DeveloperDashboard } from './components/DeveloperDashboard';
 import { ChitGroupList } from './components/ChitGroupList';
 import { ChitDetailView } from './components/ChitDetailView';
 import { LiftCalculator } from './components/LiftCalculator';
@@ -80,13 +81,41 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleLogout = async () => {
+    await api.logout();
+    handleSetUser(null);
+  };
+
+  // Validate the stored session against the server when one exists.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const mode = await api.getStorageMode();
+      if (mode !== 'server' || cancelled) return;
+      const result = await api.me();
+      if (cancelled) return;
+      if (result) handleSetUser(result.user);
+      else handleSetUser(null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const refreshData = useCallback(async () => {
     if (!user) return;
+    if (user.role === 'developer') {
+      setGroups([]);
+      setDues([]);
+      setReceipts([]);
+      return;
+    }
     try {
       const [chitsRes, duesRes, receiptsRes] = await Promise.all([
-        api.getChits(user.id),
-        api.getDues(user.id),
-        api.getReceipts(user.id),
+        api.getChits(),
+        api.getDues(),
+        api.getReceipts(),
       ]);
       setGroups(chitsRes.groups);
       setDues(duesRes.dues);
@@ -105,6 +134,7 @@ export const App: React.FC = () => {
   }
 
   const isOrganizer = user.role === 'organizer';
+  const isDeveloper = user.role === 'developer';
 
   const handleOpenGroup = (groupId: number) => {
     setSelectedGroupId(groupId);
@@ -125,10 +155,12 @@ export const App: React.FC = () => {
         activeTab={activeTab}
         dueBadgeCount={dues.length}
         onSelectTab={handleTabSelect}
-        onLogout={() => handleSetUser(null)}
+        onLogout={handleLogout}
         onDataImported={refreshData}
       >
-        {selectedGroupId !== null && activeTab === 'groups' ? (
+        {isDeveloper ? (
+          <DeveloperDashboard user={user} />
+        ) : selectedGroupId !== null && activeTab === 'groups' ? (
           <ChitDetailView
             groupId={selectedGroupId}
             currentUser={user}
@@ -167,7 +199,7 @@ export const App: React.FC = () => {
             onOpenCreateModal={() => setShowCreateModal(true)}
           />
         ) : activeTab === 'calculator' ? (
-          <LiftCalculator userId={user.id} groups={groups} />
+          <LiftCalculator groups={groups} />
         ) : (
           <DuesAndReceiptsView
             isOrganizer={isOrganizer}
@@ -181,7 +213,6 @@ export const App: React.FC = () => {
 
       {showCreateModal && isOrganizer && (
         <CreateChitModal
-          organizerId={user.id}
           onClose={() => setShowCreateModal(false)}
           onCreated={(created) => {
             setShowCreateModal(false);

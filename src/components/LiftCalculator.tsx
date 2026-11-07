@@ -15,13 +15,11 @@ import {
 import { formatPassbookAmount, formatShortDate } from '../utils/format';
 
 interface LiftCalculatorProps {
-  userId: number;
   groups?: ChitGroupSummary[];
   lockedGroup?: ChitGroupDetail | null;
 }
 
 export const LiftCalculator: React.FC<LiftCalculatorProps> = ({
-  userId,
   groups = [],
   lockedGroup = null,
 }) => {
@@ -51,7 +49,7 @@ export const LiftCalculator: React.FC<LiftCalculatorProps> = ({
     if (selectedSource.startsWith('group:')) {
       const id = Number(selectedSource.split(':')[1]);
       api
-        .getChitDetail(id, userId)
+        .getChitDetail(id)
         .then(({ group }) => {
           setLoadedGroup(group);
           setSelectedMonth((prev) =>
@@ -64,7 +62,7 @@ export const LiftCalculator: React.FC<LiftCalculatorProps> = ({
     } else {
       setLoadedGroup(null);
     }
-  }, [selectedSource, lockedGroup, userId]);
+  }, [selectedSource, lockedGroup]);
 
   const activeConfig = useMemo(() => {
     if (lockedGroup) {
