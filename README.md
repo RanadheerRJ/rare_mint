@@ -19,6 +19,10 @@ The create-chit screen includes optional schedule templates; these are editable 
 
 Locally, the app uses SQLite in `data/rare_mint.sqlite`. GitHub Pages uses a browser-local ledger instead; its data is not shared between devices or browsers. Use the JSON backup/restore controls in static mode to transfer it. A fresh database/browser starts empty. Demo records seeded by early builds (the sample organizer, its 20 sample members, the `RM-5L-16M` / `RM-2L-20M` chits and their tickets and payments) are removed automatically, once, from existing SQLite databases, browser ledgers and restored JSON backups. Saved demo sign-ins and cached demo responses are cleared too. Entries you created yourself are kept.
 
+## Loading app updates
+
+The app works offline, so a device can keep showing an older version after a new deploy. Tap **Hard Refresh App** (sidebar on desktop, ↻ icon in the top bar on mobile, or the link under the sign-in form). It removes Rare Mint's service worker and offline caches and reloads the latest build from the network. Your ledger, sign-in and backups are kept. The **Version** label under the button shows the build time (IST) of the version you are running.
+
 ## Development checks
 
 ```bash

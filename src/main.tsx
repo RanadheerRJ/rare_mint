@@ -2,6 +2,9 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import './index.css';
+import { stripRefreshParam } from './utils/hardRefresh';
+
+stripRefreshParam();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Lock, Phone, ShieldCheck, UserCheck } from 'lucide-react';
 import { User } from '../types';
 import { api } from '../api/client';
+import { HardRefreshButton } from './HardRefreshButton';
 
 interface AuthScreenProps {
   onAuthenticated: (user: User) => void;
@@ -192,6 +193,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
                   : 'Register & Open Passbook'}
             </button>
           </form>
+
+          <div className="mt-5 border-t border-[#0B3B2E]/10 pt-4">
+            <HardRefreshButton variant="link" />
+          </div>
         </div>
       </div>
     </div>
